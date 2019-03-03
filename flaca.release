@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="DEFAULT"
+SOURCEFILE="template.tex"
+
+# set options to accept
+readonly KNOWN_OPTIONS=":hvt:"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    # show help
+    "h") OPMODE="SHOW_HELP"
+         ;;
+
+    # show version
+    "v") OPMODE="SHOW_VERSION"
+         ;;
+
+    # set template file
+    "t") SOURCEFILE="$OPTARG"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check if source file is missing
+if [ ! -f "$SOURCEFILE" ] ; then
+
+  # notify user
+  failmsg "unable to locate source file: \"$SOURCEFILE\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# get timestamp (UTC)
+NOW=$(date -u "+%Y%m%d-%H%M%S")
+
+# set target file
+TARGETFILE="$NOW.tex"
+
+# wait for unique filename
+while [ -f "$TARGETFILE" ]
+do
+
+  # notify user
+  warnmsg "target file already exists: $TARGETFILE"
+
+  # wait one second
+  sleep 1
+
+  # get timestamp (UTC)
+  NOW=$(date -u "+%Y%m%d-%H%M%S")
+
+  # set target file
+  TARGETFILE="$NOW.tex"
+
+done
+
+# copy tex code
+cat "$SOURCEFILE" > "$TARGETFILE"
+
+# notify user
+donemsg "file created: $TARGETFILE"
+
+# create pdf file
+pdflatex "$TARGETFILE" &>"/dev/null"
+
+# check if pdf file has been created
+if [ ! -s "$NOW.pdf" ] ; then
+
+  # notify user
+  failmsg "unable to create pdf file: \"$NOW.pdf\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# remove temporary files
+rm -f *.aux *.log
+
+# notify user
+donemsg "file created: $NOW.pdf"
+
+# signalize success
+exit 0
+

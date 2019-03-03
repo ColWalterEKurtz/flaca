@@ -1,0 +1,215 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# set name of the config file once
+readonly CFGFILE=".flaca.cfg"
+
+# set name of the file that holds the path of the current fashcard
+readonly CFCFILE=".flaca.cfc"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ---------------
+# get_next_number
+# ---------------
+#
+# $1  directory
+#
+function get_next_number()
+{
+  {
+    # push dummy file to stdout
+    echo "000000-"
+
+    # get pdf files from this directory
+    find "$1"                               \
+         -maxdepth "1"                      \
+         -type "f"                          \
+         -regextype "posix-extended"        \
+         -regex ".+\.[Pp][Dd][Ff]$"
+  }                                         \
+  | sort                                    \
+  | tail -n 1                               \
+  | sed -re "s|.*/||"                       \
+  | sed -re "s/([[:digit:]]{6})-.*/\1 + 1/" \
+  | bc
+}
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check if '01' directory is missing
+if [ ! -d "01" ] ; then
+
+  # notify user
+  failmsg "unable to locate '01' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if 'current-flashcard' file is missing or empty
+if [ ! -s "$CFCFILE" ] ; then
+
+  # notify user
+  failmsg "don't know which flashcard you missed"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# get path from 'current-flashcard' file
+FLASHCARD=$(sed -nre "/^[[:space:]]*$/ { d } ; p ; q" "$CFCFILE")
+
+# check given path
+if [ ! -f "$FLASHCARD" ] ; then
+
+  # notify user
+  failmsg "unable to locate flashcard: \"$FLASHCARD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# split path
+BNAME=$(basename "$FLASHCARD")
+FIXPART=$(sed -re "s|^[[:digit:]]{6}-||" <<< "$BNAME")
+
+# check name part
+if [ -z "$FIXPART" ] ; then
+
+  # notify user
+  failmsg "unable to get filename from path: \"$FLASHCARD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# set next section
+NEXTSECTION="01"
+
+# get highest number + 1
+NEXTNUMBER=$(printf "%06d" "$(get_next_number "$NEXTSECTION")")
+
+# create target path
+TARGETPATH="$NEXTSECTION/$NEXTNUMBER-$FIXPART"
+
+# just to make sure
+if [ -f "$TARGETPATH" ] ; then
+
+  # notify user
+  failmsg "target file already exists: \"$TARGETPATH\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# move flashcard to next section
+mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+# check operation
+if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
+
+  # reset file that holds the path of the current flashcard
+  truncate -s 0 "$CFCFILE"
+
+  # show progress
+  donemsg "$NEXTSECTION <-- $FIXPART"
+
+else
+
+  # notify user
+  failmsg "flashcard could not be moved: \"$FLASHCARD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# signalize success
+exit 0
+

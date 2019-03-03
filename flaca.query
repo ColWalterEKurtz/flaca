@@ -1,0 +1,417 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# white space
+readonly BLOBB="[[:space:]]*"
+
+# set name of the config file once
+readonly CFGFILE=".flaca.cfg"
+
+# set name of the file that holds the path of the current fashcard
+readonly CFCFILE=".flaca.cfc"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# -----------------------
+# get_number_of_pdf_files
+# -----------------------
+#
+# This function returns the number of pdf files in the given directory.
+#
+# $1  directory
+#
+function get_number_of_pdf_files()
+{
+  # get number of pdf files in this directory
+  find "$NUM"                      \
+       -maxdepth "1"               \
+       -type "f"                   \
+       -regextype "posix-extended" \
+       -regex ".+\.[Pp][Dd][Ff]$"  \
+       -printf "."                 \
+  | wc -c
+}
+
+# ------------------
+# get_first_pdf_file
+# ------------------
+#
+# This function returns the first pdf file from the given directory.
+#
+# $1  directory
+#
+function get_first_pdf_file()
+{
+  # get first pdf file from this directory
+  find "$1"                        \
+       -maxdepth "1"               \
+       -type "f"                   \
+       -regextype "posix-extended" \
+       -regex ".+\.[Pp][Dd][Ff]$"  \
+  | sort                           \
+  | head -n 1
+}
+
+# --------------------
+# find_highest_jamming
+# --------------------
+#
+# This function selects the first flashcard from the highest section that is overfull.
+#
+# $1  number of sections
+#
+function find_highest_jamming()
+{
+  # check each section (highest to lowest)
+  for (( INDEX = $1 ; INDEX > 0 ; INDEX-- ))
+  do
+
+    # append leading zeros
+    NUM=$(printf "%02d" "$INDEX")
+
+    # check if directory is missing
+    if [ ! -d "$NUM" ] ; then
+
+      # notify user
+      failmsg "unable to locate directory: \"$NUM\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+    # get size of this section
+    SIZE=$(sed -nre "s/${BLOBB}SIZE$NUM${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
+
+    # check if number of sections is empty
+    if [ -z "$SIZE" ] ; then
+
+      # notify user
+      failmsg "unable to read size of section $NUM"
+
+      # signalize trouble
+      return 1
+
+    fi
+
+    # get number of pdf files in this directory
+    FILES=$(get_number_of_pdf_files "$NUM")
+
+    # full section found
+    if (( FILES > SIZE )) ; then
+
+      # get first pdf file from this directory
+      get_first_pdf_file "$NUM" > "$CFCFILE"
+
+      # exit loop
+      break
+
+    fi
+
+  done
+
+  # still no flashcard found
+  if [ ! -s "$CFCFILE" ]; then
+
+    # check 'new' section at last
+    get_first_pdf_file "new" > "$CFCFILE"
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# ---------------------
+# find_minimum_progress
+# ---------------------
+#
+# This function selects the first flashcard from the lowest section that holds at least one flashcard.
+#
+# $1  number of sections
+#
+function find_minimum_progress()
+{
+  # check 'new' section first
+  get_first_pdf_file "new" > "$CFCFILE"
+
+  # flashcard found
+  if [ -s "$CFCFILE" ]; then
+
+    # signalize success
+    return 0
+
+  fi
+
+  # check each section (lowest to highest)
+  for (( INDEX = 1 ; INDEX <= $1 ; INDEX++ ))
+  do
+
+    # append leading zeros
+    NUM=$(printf "%02d" "$INDEX")
+
+    # check if directory is missing
+    if [ ! -d "$NUM" ] ; then
+
+      # notify user
+      failmsg "unable to locate directory: \"$NUM\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+    # try to get first pdf file from this directory
+    get_first_pdf_file "$NUM" > "$CFCFILE"
+
+    # pdf file found
+    if [ -s "$CFCFILE" ] ; then
+
+      # exit loop
+      break
+
+    fi
+
+  done
+
+  # still no flashcard found
+  if [ ! -s "$CFCFILE" ]; then
+
+    # check 'done' section at last
+    get_first_pdf_file "done" > "$CFCFILE"
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="HIGHEST_JAMMING"
+
+# set options to accept
+readonly KNOWN_OPTIONS=":hvm"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    # select flashcard that has made the smallest progress
+    "m") OPMODE="MINIMUM_PROGRESS"
+         ;;
+
+    # show help
+    "h") OPMODE="SHOW_HELP"
+         ;;
+
+    # show version
+    "v") OPMODE="SHOW_VERSION"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  failmsg "no permission to write here: \"$PWD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# reset file that holds the path of the current flashcard
+truncate -s 0 "$CFCFILE"
+
+# check if 'new' directory is missing
+if [ ! -d "new" ] ; then
+
+  # notify user
+  failmsg "unable to locate 'new' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if 'done' directory is missing
+if [ ! -d "done" ] ; then
+
+  # notify user
+  failmsg "unable to locate 'done' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if config file is missing
+if [ ! -f "$CFGFILE" ] ; then
+
+  # notify user
+  failmsg "unable to locate config file: \"$CFGFILE\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# get number of sections
+SECTIONS=$(sed -nre "s/${BLOBB}SECTIONS${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
+
+# check if number of sections is empty
+if [ -z "$SECTIONS" ] ; then
+
+  # notify user
+  failmsg "unable to read number of sections"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# find highest jamming flashcard
+if [ "$OPMODE" == "HIGHEST_JAMMING" ] ; then
+
+  find_highest_jamming "$SECTIONS"
+
+  # no flashcard found
+  if [ ! -s "$CFCFILE" ] ; then
+
+    # notify user
+    donemsg "no jamming flashcards found (add new flashcards or try -m option)"
+
+    # stop here
+    exit 0
+
+  fi
+
+# find flashcard that has made the smallest progress
+elif [ "$OPMODE" == "MINIMUM_PROGRESS" ] ; then
+
+  find_minimum_progress "$SECTIONS"
+
+  # no flashcard found
+  if [ ! -s "$CFCFILE" ] ; then
+
+    # notify user
+    warnmsg "no flashcards found"
+
+    # stop here
+    exit 0
+
+  fi
+
+fi
+
+# show page 1 from pdf file
+cat "$CFCFILE" | xargs -L1 xreader -i 1 &
+
+# signalize success
+exit 0
+
