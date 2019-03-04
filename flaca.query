@@ -29,12 +29,6 @@ readonly MAGENTA=$(tput setaf 5)
 readonly    CYAN=$(tput setaf 6)
 readonly   WHITE=$(tput setaf 7)
 
-# white space
-readonly BLOBB="[[:space:]]*"
-
-# set name of the config file once
-readonly CFGFILE=".flaca.cfg"
-
 # set name of the file that holds the path of the current fashcard
 readonly CFCFILE=".flaca.cfc"
 
@@ -101,12 +95,12 @@ function donemsg()
 function get_number_of_pdf_files()
 {
   # get number of pdf files in this directory
-  find "$NUM"                      \
-       -maxdepth "1"               \
-       -type "f"                   \
-       -regextype "posix-extended" \
-       -regex ".+\.[Pp][Dd][Ff]$"  \
-       -printf "."                 \
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+       -printf    "."                 \
   | wc -c
 }
 
@@ -121,12 +115,12 @@ function get_number_of_pdf_files()
 function get_first_pdf_file()
 {
   # get first pdf file from this directory
-  find "$1"                        \
-       -maxdepth "1"               \
-       -type "f"                   \
-       -regextype "posix-extended" \
-       -regex ".+\.[Pp][Dd][Ff]$"  \
-  | sort                           \
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
   | head -n 1
 }
 
@@ -134,52 +128,30 @@ function get_first_pdf_file()
 # find_highest_jamming
 # --------------------
 #
-# This function selects the first flashcard from the highest section that is overfull.
-#
-# $1  number of sections
+# This function selects the first flashcard from the highest box that is overfull.
 #
 function find_highest_jamming()
 {
-  # check each section (highest to lowest)
-  for (( INDEX = $1 ; INDEX > 0 ; INDEX-- ))
+  # check each box (largest to smallest)
+  find -maxdepth  "1"                     \
+       -type      "d"                     \
+       -regextype "posix-extended"        \
+       -regex     ".+/box[[:digit:]]{3}$" \
+  | sort --reverse                        \
+  | while read -r BOXDIR
   do
 
-    # append leading zeros
-    NUM=$(printf "%02d" "$INDEX")
+    # get size of this box
+    SIZE=$(sed -nre "s/^.+box0*([[:digit:]]+)/\1/p" <<< "$BOXDIR")
 
-    # check if directory is missing
-    if [ ! -d "$NUM" ] ; then
+    # get number of pdf files in this box
+    FILES=$(get_number_of_pdf_files "$BOXDIR")
 
-      # notify user
-      failmsg "unable to locate directory: \"$NUM\""
-
-      # signalize trouble
-      return 1
-
-    fi
-
-    # get size of this section
-    SIZE=$(sed -nre "s/${BLOBB}SIZE$NUM${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
-
-    # check if number of sections is empty
-    if [ -z "$SIZE" ] ; then
-
-      # notify user
-      failmsg "unable to read size of section $NUM"
-
-      # signalize trouble
-      return 1
-
-    fi
-
-    # get number of pdf files in this directory
-    FILES=$(get_number_of_pdf_files "$NUM")
-
-    # full section found
+    # full box found
     if (( FILES > SIZE )) ; then
 
       # get first pdf file from this directory
-      get_first_pdf_file "$NUM" > "$CFCFILE"
+      get_first_pdf_file "$BOXDIR" > "$CFCFILE"
 
       # exit loop
       break
@@ -187,14 +159,6 @@ function find_highest_jamming()
     fi
 
   done
-
-  # still no flashcard found
-  if [ ! -s "$CFCFILE" ]; then
-
-    # check 'new' section at last
-    get_first_pdf_file "new" > "$CFCFILE"
-
-  fi
 
   # signalize success
   return 0
@@ -204,43 +168,21 @@ function find_highest_jamming()
 # find_minimum_progress
 # ---------------------
 #
-# This function selects the first flashcard from the lowest section that holds at least one flashcard.
-#
-# $1  number of sections
+# This function selects the first flashcard from the smallest box that holds at least one flashcard.
 #
 function find_minimum_progress()
 {
-  # check 'new' section first
-  get_first_pdf_file "new" > "$CFCFILE"
-
-  # flashcard found
-  if [ -s "$CFCFILE" ]; then
-
-    # signalize success
-    return 0
-
-  fi
-
-  # check each section (lowest to highest)
-  for (( INDEX = 1 ; INDEX <= $1 ; INDEX++ ))
+  # check each box (smallest to largest)
+  find -maxdepth  "1"                     \
+       -type      "d"                     \
+       -regextype "posix-extended"        \
+       -regex     ".+/box[[:digit:]]{3}$" \
+  | sort                                  \
+  | while read -r BOXDIR
   do
 
-    # append leading zeros
-    NUM=$(printf "%02d" "$INDEX")
-
-    # check if directory is missing
-    if [ ! -d "$NUM" ] ; then
-
-      # notify user
-      failmsg "unable to locate directory: \"$NUM\""
-
-      # signalize trouble
-      return 1
-
-    fi
-
-    # try to get first pdf file from this directory
-    get_first_pdf_file "$NUM" > "$CFCFILE"
+    # try to get first pdf file from this box
+    get_first_pdf_file "$BOXDIR" > "$CFCFILE"
 
     # pdf file found
     if [ -s "$CFCFILE" ] ; then
@@ -255,8 +197,8 @@ function find_minimum_progress()
   # still no flashcard found
   if [ ! -s "$CFCFILE" ]; then
 
-    # check 'done' section at last
-    get_first_pdf_file "done" > "$CFCFILE"
+    # check last box
+    get_first_pdf_file "boxEND" > "$CFCFILE"
 
   fi
 
@@ -314,6 +256,28 @@ shift $(( OPTIND - 1 ))
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
+# check if 'box000' directory is missing
+if [ ! -d "box000" ] ; then
+
+  # notify user
+  failmsg "unable to locate 'box000' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if 'boxEND' directory is missing
+if [ ! -d "boxEND" ] ; then
+
+  # notify user
+  failmsg "unable to locate 'boxEND' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
 # check permission to write
 if [ ! -w "$PWD" ] ; then
 
@@ -328,57 +292,10 @@ fi
 # reset file that holds the path of the current flashcard
 truncate -s 0 "$CFCFILE"
 
-# check if 'new' directory is missing
-if [ ! -d "new" ] ; then
-
-  # notify user
-  failmsg "unable to locate 'new' directory"
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# check if 'done' directory is missing
-if [ ! -d "done" ] ; then
-
-  # notify user
-  failmsg "unable to locate 'done' directory"
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# check if config file is missing
-if [ ! -f "$CFGFILE" ] ; then
-
-  # notify user
-  failmsg "unable to locate config file: \"$CFGFILE\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# get number of sections
-SECTIONS=$(sed -nre "s/${BLOBB}SECTIONS${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
-
-# check if number of sections is empty
-if [ -z "$SECTIONS" ] ; then
-
-  # notify user
-  failmsg "unable to read number of sections"
-
-  # signalize trouble
-  exit 1
-
-fi
-
 # find highest jamming flashcard
 if [ "$OPMODE" == "HIGHEST_JAMMING" ] ; then
 
-  find_highest_jamming "$SECTIONS"
+  find_highest_jamming
 
   # no flashcard found
   if [ ! -s "$CFCFILE" ] ; then
@@ -394,7 +311,7 @@ if [ "$OPMODE" == "HIGHEST_JAMMING" ] ; then
 # find flashcard that has made the smallest progress
 elif [ "$OPMODE" == "MINIMUM_PROGRESS" ] ; then
 
-  find_minimum_progress "$SECTIONS"
+  find_minimum_progress
 
   # no flashcard found
   if [ ! -s "$CFCFILE" ] ; then
