@@ -1,0 +1,286 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# white space
+readonly BLOBB="[[:space:]]*"
+
+# set name of the config file once
+readonly CFGFILE=".flaca.cfg"
+
+# set name of the file that holds the path of the current fashcard
+readonly CFCFILE=".flaca.cfc"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="DRYRUN"
+
+# set options to accept
+readonly KNOWN_OPTIONS=":hvx"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    # really move files
+    "x") OPMODE="EXECUTE"
+         ;;
+
+    # show help
+    "h") OPMODE="SHOW_HELP"
+         ;;
+
+    # show version
+    "v") OPMODE="SHOW_VERSION"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  failmsg "no permission to write here: \"$PWD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if 'new' directory is missing
+if [ ! -d "new" ] ; then
+
+  # notify user
+  failmsg "unable to locate 'new' directory"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if config file is missing
+if [ ! -f "$CFGFILE" ] ; then
+
+  # notify user
+  failmsg "unable to locate config file: \"$CFGFILE\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# get number of sections
+SECTIONS=$(sed -nre "s/${BLOBB}SECTIONS${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
+
+# check if number of sections is empty
+if [ -z "$SECTIONS" ] ; then
+
+  # notify user
+  failmsg "unable to read number of sections"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check each section
+for (( INDEX = 1 ; INDEX <= SECTIONS ; INDEX++ ))
+do
+
+  # append leading zeros
+  NUM=$(printf "%02d" "$INDEX")
+
+  # check if directory is missing
+  if [ ! -d "$NUM" ] ; then
+
+    # notify user
+    failmsg "unable to locate directory: \"$NUM\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # get pdf files from this directory
+  find "$NUM"                      \
+       -maxdepth "1"               \
+       -type "f"                   \
+       -regextype "posix-extended" \
+       -regex ".+\.[Pp][Dd][Ff]$"  \
+  | sort                           \
+  | while read -r FLASHCARD
+  do
+
+    # set new path
+    TARGETPATH=$(basename "$FLASHCARD" | sed -re "s/[[:digit:]]{6}-// ; s|.+|new/&|")
+
+    # check if file already exists
+    while [ -f "$TARGETPATH" ]
+    do
+
+      # notify user
+      warnmsg "file already exists: \"$TARGETPATH\""
+
+      # get unique hash value
+      UNIQUE=$(date -uIns | sha1sum | sed -re "s/ .+//")
+
+      # set new path
+      TARGETPATH=$(basename "$FLASHCARD" | sed -re "s/[[:digit:]]{6}-// ; s|.+|new/$UNIQUE-&|")
+
+    done
+
+    # check operation mode
+    if [ "$OPMODE" == "EXECUTE" ] ; then
+
+      # move flashcard to 'new' section
+      mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+      # check operation
+      if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
+
+        # show progress
+        donemsg "$FLASHCARD --> $TARGETPATH"
+
+      else
+
+        # notify user
+        failmsg "flashcard could not be moved: \"$FLASHCARD\""
+
+        # signalize trouble
+        exit 1
+
+      fi
+
+    else
+
+      # just show operation
+      infomsg "$FLASHCARD --> $TARGETPATH"
+
+    fi
+
+  done
+  
+done
+
+# check operation mode
+if [ "$OPMODE" == "EXECUTE" ] ; then
+
+  # reset file that holds the path of the current flashcard
+  truncate -s 0 "$CFCFILE"
+
+else
+
+  # notify user
+  echo
+  infomsg "this was a dry run: use -x option to move your files actually"
+  echo
+
+fi
+
+# signalize success
+exit 0
+

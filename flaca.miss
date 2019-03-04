@@ -117,6 +117,17 @@ function get_next_number()
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  failmsg "no permission to write here: \"$PWD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
 # check if '01' directory is missing
 if [ ! -d "01" ] ; then
 
