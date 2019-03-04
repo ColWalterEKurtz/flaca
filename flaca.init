@@ -121,103 +121,37 @@ function create_directory()
 }
 
 # ------------------------------------------------------------------------------
-# options                                                                options
-# ------------------------------------------------------------------------------
-
-# set default values
-OPMODE="DEFAULT"
-
-# set options to accept
-readonly KNOWN_OPTIONS=":hv"
-
-# check passed options
-while getopts "$KNOWN_OPTIONS" OPTION "$@"
-do
-
-  case "$OPTION" in
-
-    # show help
-    "h") OPMODE="SHOW_HELP"
-         ;;
-
-    # show version
-    "v") OPMODE="SHOW_VERSION"
-         ;;
-
-    "?") failmsg "unknown option: -$OPTARG"
-         exit 1
-         ;;
-
-    ":") failmsg "missing argument: -$OPTARG <argument>"
-         exit 1
-         ;;
-
-  esac
-
-done
-
-# get number of positional parameters
-PPNUM=$(( $# - OPTIND + 1 ))
-
-# drop all parsed options
-shift $(( OPTIND - 1 ))
-
-# ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
-# create directory
-create_directory "new"
-
-# create directories
-for (( INDEX = 1 ; INDEX < 10 ; INDEX++ ))
-do
-
-  # insert leading zeros
-  DIRNAME=$(printf "%02d" "$INDEX")
-
-  # create directory
-  create_directory "$DIRNAME"
-
-done
-
-# create directory
-create_directory "done"
-
-# set filename
-CFGFILE=".flaca.cfg"
-
-# redirect entire group
-{
-  echo "SECTIONS=9"
-  echo
-  echo "SIZE01=5"
-  echo "SIZE02=10"
-  echo "SIZE03=15"
-  echo "SIZE04=20"
-  echo "SIZE05=30"
-  echo "SIZE06=50"
-  echo "SIZE07=80"
-  echo "SIZE08=120"
-  echo "SIZE09=150"
-
-} > "$CFGFILE"
-
-# check if file has been created
-if [ -s "$CFGFILE" ] ; then
+# check permission to write
+if [ ! -w "$PWD" ] ; then
 
   # notify user
-  donemsg "file created: $CFGFILE"
-
-else
-
-  # notify user
-  failmsg "unable to create file: \"$CFGFILE\""
+  failmsg "no permission to write here: \"$PWD\""
 
   # signalize trouble
   exit 1
 
 fi
+
+# create these default directories
+for DIR in box000 \
+           box005 \
+           box010 \
+           box015 \
+           box020 \
+           box030 \
+           box050 \
+           box080 \
+           box120 \
+           box150 \
+           boxEND
+do
+
+  create_directory "$DIR"
+
+done
 
 # signalize success
 exit 0
