@@ -90,6 +90,65 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
+# --------------
+# move_flashcard
+# --------------
+#
+# $1  filename
+#
+function move_flashcard()
+{
+  # set new path
+  local TARGETPATH=$(basename "$1" | sed -re "s/^[[:digit:]]{6}-// ; s|.+|new/&|")
+
+  # check if file already exists
+  while [ -f "$TARGETPATH" ]
+  do
+
+    # notify user
+    warnmsg "file already exists: \"$TARGETPATH\""
+
+    # get unique hash value
+    local UNIQUE=$(date -uIns | sha1sum | sed -re "s/ .+//")
+
+    # set new path
+    local TARGETPATH=$(basename "$1" | sed -re "s/^[[:digit:]]{6}-// ; s|.+|new/$UNIQUE-&|")
+
+  done
+
+  # check operation mode
+  if [ "$OPMODE" == "EXECUTE" ] ; then
+
+    # move flashcard to 'new' section
+    mv -f "$1" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$TARGETPATH" ] && [ ! -f "$1" ] ; then
+
+      # show progress
+      donemsg "$1 --> $TARGETPATH"
+
+    else
+
+      # notify user
+      failmsg "flashcard could not be moved: \"$1\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+  else
+
+    # just show operation
+    infomsg "$1 --> $TARGETPATH"
+
+  fi
+
+  # signalize success
+  return 0
+}
+
 # ------------------------------------------------------------------------------
 # options                                                                options
 # ------------------------------------------------------------------------------
@@ -205,7 +264,7 @@ do
 
   fi
 
-  # get pdf files from this directory
+  # get pdf files from this section
   find "$NUM"                      \
        -maxdepth "1"               \
        -type "f"                   \
@@ -215,55 +274,26 @@ do
   | while read -r FLASHCARD
   do
 
-    # set new path
-    TARGETPATH=$(basename "$FLASHCARD" | sed -re "s/[[:digit:]]{6}-// ; s|.+|new/&|")
-
-    # check if file already exists
-    while [ -f "$TARGETPATH" ]
-    do
-
-      # notify user
-      warnmsg "file already exists: \"$TARGETPATH\""
-
-      # get unique hash value
-      UNIQUE=$(date -uIns | sha1sum | sed -re "s/ .+//")
-
-      # set new path
-      TARGETPATH=$(basename "$FLASHCARD" | sed -re "s/[[:digit:]]{6}-// ; s|.+|new/$UNIQUE-&|")
-
-    done
-
-    # check operation mode
-    if [ "$OPMODE" == "EXECUTE" ] ; then
-
-      # move flashcard to 'new' section
-      mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
-
-      # check operation
-      if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
-
-        # show progress
-        donemsg "$FLASHCARD --> $TARGETPATH"
-
-      else
-
-        # notify user
-        failmsg "flashcard could not be moved: \"$FLASHCARD\""
-
-        # signalize trouble
-        exit 1
-
-      fi
-
-    else
-
-      # just show operation
-      infomsg "$FLASHCARD --> $TARGETPATH"
-
-    fi
+    # move flashcard to 'new' section
+    move_flashcard "$FLASHCARD"
 
   done
-  
+
+done
+
+# get pdf files from 'done' section
+find "done"                      \
+     -maxdepth "1"               \
+     -type "f"                   \
+     -regextype "posix-extended" \
+     -regex ".+\.[Pp][Dd][Ff]$"  \
+| sort                           \
+| while read -r FLASHCARD
+do
+
+  # move flashcard to 'new' section
+  move_flashcard "$FLASHCARD"
+
 done
 
 # check operation mode
