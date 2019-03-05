@@ -32,6 +32,10 @@ readonly   WHITE=$(tput setaf 7)
 # set name of the file that holds the path of the current fashcard
 readonly CFCFILE=".flaca.cfc"
 
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
 # ------------------------------------------------------------------------------
 # functions                                                            functions
 # ------------------------------------------------------------------------------
@@ -256,22 +260,22 @@ shift $(( OPTIND - 1 ))
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
-# check if 'box000' directory is missing
-if [ ! -d "box000" ] ; then
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate 'box000' directory"
+  failmsg "unable to locate directory: \"$FIRSTBOX\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# check if 'boxEND' directory is missing
-if [ ! -d "boxEND" ] ; then
+# check if last box is missing
+if [ ! -d "$LASTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate 'boxEND' directory"
+  failmsg "unable to locate directory: \"$LASTBOX\""
 
   # signalize trouble
   exit 1
