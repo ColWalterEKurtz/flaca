@@ -29,14 +29,12 @@ readonly MAGENTA=$(tput setaf 5)
 readonly    CYAN=$(tput setaf 6)
 readonly   WHITE=$(tput setaf 7)
 
-# white space
-readonly BLOBB="[[:space:]]*"
-
-# set name of the config file once
-readonly CFGFILE=".flaca.cfg"
-
 # set name of the file that holds the path of the current fashcard
 readonly CFCFILE=".flaca.cfc"
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
 
 # ------------------------------------------------------------------------------
 # functions                                                            functions
@@ -90,6 +88,18 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
+# -------
+# get_box
+# -------
+#
+# $1  flashcard path
+#
+function get_box()
+{
+  # get current box (last directory)
+  sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1"
+}
+
 # --------------
 # move_flashcard
 # --------------
@@ -98,8 +108,14 @@ function donemsg()
 #
 function move_flashcard()
 {
+  # get current box
+  local NOWBOX=$(get_box "$1")
+
+  # get part of the filename to keep
+  local FIXPART=$(basename "$1" | sed -re "s|^[[:digit:]]{6}-||")
+
   # set new path
-  local TARGETPATH=$(basename "$1" | sed -re "s/^[[:digit:]]{6}-// ; s|.+|new/&|")
+  local TARGETPATH="$FIRSTBOX/$FIXPART"
 
   # check if file already exists
   while [ -f "$TARGETPATH" ]
@@ -112,21 +128,21 @@ function move_flashcard()
     local UNIQUE=$(date -uIns | sha1sum | sed -re "s/ .+//")
 
     # set new path
-    local TARGETPATH=$(basename "$1" | sed -re "s/^[[:digit:]]{6}-// ; s|.+|new/$UNIQUE-&|")
+    local TARGETPATH="$FIRSTBOX/$UNIQUE-$FIXPART"
 
   done
 
   # check operation mode
   if [ "$OPMODE" == "EXECUTE" ] ; then
 
-    # move flashcard to 'new' section
+    # move flashcard to first box
     mv -f "$1" "$TARGETPATH" &>"/dev/null"
 
     # check operation
     if [ -f "$TARGETPATH" ] && [ ! -f "$1" ] ; then
 
       # show progress
-      donemsg "$1 --> $TARGETPATH"
+      donemsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
 
     else
 
@@ -141,7 +157,7 @@ function move_flashcard()
   else
 
     # just show operation
-    infomsg "$1 --> $TARGETPATH"
+    infomsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
 
   fi
 
@@ -210,89 +226,53 @@ if [ ! -w "$PWD" ] ; then
 
 fi
 
-# check if 'new' directory is missing
-if [ ! -d "new" ] ; then
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate 'new' directory"
+  failmsg "unable to locate directory: \"$FIRSTBOX\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# check if config file is missing
-if [ ! -f "$CFGFILE" ] ; then
+# check if last box is missing
+if [ ! -d "$LASTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate config file: \"$CFGFILE\""
+  failmsg "unable to locate directory: \"$LASTBOX\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# get number of sections
-SECTIONS=$(sed -nre "s/${BLOBB}SECTIONS${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
-
-# check if number of sections is empty
-if [ -z "$SECTIONS" ] ; then
-
-  # notify user
-  failmsg "unable to read number of sections"
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# check each section
-for (( INDEX = 1 ; INDEX <= SECTIONS ; INDEX++ ))
+# find all box directories (skip first box)
+find -maxdepth  "1"              \
+     -type      "d"              \
+     -regextype "posix-extended" \
+     -regex     ".+/box[^/]{3}$" \
+     -printf    "%P\n"           \
+| sed -re "/^$FIRSTBOX$/ d"      \
+| sort                           \
+| while read -r BOXNAME
 do
 
-  # append leading zeros
-  NUM=$(printf "%02d" "$INDEX")
-
-  # check if directory is missing
-  if [ ! -d "$NUM" ] ; then
-
-    # notify user
-    failmsg "unable to locate directory: \"$NUM\""
-
-    # signalize trouble
-    return 1
-
-  fi
-
-  # get pdf files from this section
-  find "$NUM"                      \
-       -maxdepth "1"               \
-       -type "f"                   \
-       -regextype "posix-extended" \
-       -regex ".+\.[Pp][Dd][Ff]$"  \
-  | sort                           \
+  # find all pdf files from this box
+  find "$BOXNAME"                     \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
   | while read -r FLASHCARD
   do
 
-    # move flashcard to 'new' section
+    # move flashcard to first box
     move_flashcard "$FLASHCARD"
 
   done
-
-done
-
-# get pdf files from 'done' section
-find "done"                      \
-     -maxdepth "1"               \
-     -type "f"                   \
-     -regextype "posix-extended" \
-     -regex ".+\.[Pp][Dd][Ff]$"  \
-| sort                           \
-| while read -r FLASHCARD
-do
-
-  # move flashcard to 'new' section
-  move_flashcard "$FLASHCARD"
 
 done
 
