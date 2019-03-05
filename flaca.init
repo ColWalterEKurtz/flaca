@@ -29,6 +29,10 @@ readonly MAGENTA=$(tput setaf 5)
 readonly    CYAN=$(tput setaf 6)
 readonly   WHITE=$(tput setaf 7)
 
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
 # ------------------------------------------------------------------------------
 # functions                                                            functions
 # ------------------------------------------------------------------------------
@@ -136,17 +140,17 @@ if [ ! -w "$PWD" ] ; then
 fi
 
 # create these default directories
-for DIR in box000 \
-           box005 \
-           box010 \
-           box015 \
-           box020 \
-           box030 \
-           box050 \
-           box080 \
-           box120 \
-           box150 \
-           boxEND
+for DIR in "$FIRSTBOX" \
+           box005      \
+           box010      \
+           box015      \
+           box020      \
+           box030      \
+           box050      \
+           box080      \
+           box120      \
+           box150      \
+           "$LASTBOX"
 do
 
   create_directory "$DIR"
