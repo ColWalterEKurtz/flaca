@@ -88,6 +88,66 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
+# -------
+# get_box
+# -------
+#
+# $1  flashcard path
+#
+function get_box()
+{
+  # get current box (last directory)
+  sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1"
+}
+
+# ------------
+# get_prev_box
+# ------------
+#
+# $1  box123
+#
+function get_prev_box()
+{
+  # first box given
+  if [ "$1" == "$FIRSTBOX" ] ; then
+
+    # stay in first box
+    echo "$FIRSTBOX"
+
+    # signalize success
+    return 0
+
+  fi
+
+  # find next box (print without starting point)
+  find -maxdepth  "1"              \
+       -type      "d"              \
+       -regextype "posix-extended" \
+       -regex     ".+/box[^/]{3}$" \
+       -printf    "%P\n"           \
+  | sort --reverse                 \
+  | sed --quiet                    \
+        --regexp-extended          \
+        --expression="
+
+          # current box found
+          /^$1/ {
+
+            # read next line
+            n
+
+            # push to stdout
+            /[^[:space:]]/ { p }
+
+            # finish after first printed line
+            q
+          }
+        "
+
+  # signalize success
+  return 0
+}
+
 # ------------
 # get_next_box
 # ------------
@@ -96,11 +156,8 @@ function donemsg()
 #
 function get_next_box()
 {
-  # get current box (last directory)
-  local readonly BOXNAME=$(sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1")
-
-  # already last box used
-  if [ "$BOXNAME" == "$LASTBOX" ] ; then
+  # last box given
+  if [ "$1" == "$LASTBOX" ] ; then
 
     # stay in last box
     echo "$LASTBOX"
@@ -122,7 +179,7 @@ function get_next_box()
         --expression="
 
           # current box found
-          /^$BOXNAME/ {
+          /^$1/ {
 
             # read next line
             n
@@ -227,8 +284,22 @@ if [ ! -f "$FLASHCARD" ] ; then
 
 fi
 
+# get current box
+NOWBOX=$(get_box "$FLASHCARD")
+
+# check box
+if [ -z "$NOWBOX" ] ; then
+
+  # notify user
+  failmsg "unable to resolve current box: \"$FLASHCARD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
 # get next box
-NEWBOX=$(get_next_box "$FLASHCARD")
+NEWBOX=$(get_next_box "$NOWBOX")
 
 # check box
 if [ -z "$NEWBOX" ] ; then
@@ -245,7 +316,7 @@ fi
 NEWNUM=$(get_next_number "$NEWBOX")
 
 # check index
-if [ -z "$NEWBOX" ] ; then
+if [ -z "$NEWNUM" ] ; then
 
   # notify user
   failmsg "unable to resolve box index: \"$NEWBOX\""
@@ -282,7 +353,7 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
   truncate -s 0 "$CFCFILE"
 
   # show progress
-  donemsg "$FIXPART --> $NEWBOX"
+  donemsg "$FIXPART: $NOWBOX --> $NEWBOX"
 
 else
 
