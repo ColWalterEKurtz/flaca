@@ -29,14 +29,12 @@ readonly MAGENTA=$(tput setaf 5)
 readonly    CYAN=$(tput setaf 6)
 readonly   WHITE=$(tput setaf 7)
 
-# white space
-readonly BLOBB="[[:space:]]*"
-
-# set name of the config file once
-readonly CFGFILE=".flaca.cfg"
-
 # set name of the file that holds the path of the current fashcard
 readonly CFCFILE=".flaca.cfc"
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
 
 # ------------------------------------------------------------------------------
 # functions                                                            functions
@@ -90,6 +88,57 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
+# ------------
+# get_next_box
+# ------------
+#
+# $1  flashcard path
+#
+function get_next_box()
+{
+  # get current box (last directory)
+  local readonly BOXNAME=$(sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1")
+
+  # already last box used
+  if [ "$BOXNAME" == "$LASTBOX" ] ; then
+
+    # stay in last box
+    echo "$LASTBOX"
+
+    # signalize success
+    return 0
+
+  fi
+
+  # find next box (print without starting point)
+  find -maxdepth  "1"              \
+       -type      "d"              \
+       -regextype "posix-extended" \
+       -regex     ".+/box[^/]{3}$" \
+       -printf    "%P\n"           \
+  | sort                           \
+  | sed --quiet                    \
+        --regexp-extended          \
+        --expression="
+
+          # current box found
+          /^$BOXNAME/ {
+
+            # read next line
+            n
+
+            # push to stdout
+            /[^[:space:]]/ { p }
+
+            # finish after first printed line
+            q
+          }
+        "
+
+  # signalize success
+  return 0
+}
+
 # ---------------
 # get_next_number
 # ---------------
@@ -100,19 +149,19 @@ function get_next_number()
 {
   {
     # push dummy file to stdout
-    echo "000000-"
+    echo "000000-dummy.pdf"
 
-    # get pdf files from this directory
-    find "$1"                               \
-         -maxdepth "1"                      \
-         -type "f"                          \
-         -regextype "posix-extended"        \
-         -regex ".+\.[Pp][Dd][Ff]$"
-  }                                         \
-  | sort                                    \
-  | tail -n 1                               \
-  | sed -re "s|.*/||"                       \
-  | sed -re "s/([[:digit:]]{6})-.*/\1 + 1/" \
+    # get pdf files from this directory (print last part only)
+    find "$1"                                                \
+         -maxdepth  "1"                                      \
+         -type      "f"                                      \
+         -regextype "posix-extended"                         \
+         -regex     ".+/[[:digit:]]{6}-[^/]+\.[Pp][Dd][Ff]$" \
+         -printf    "%f\n"
+  }                                                          \
+  | sort                                                     \
+  | tail -n 1                                                \
+  | sed -re "s/^0*([[:digit:]]+)-.*/\1 + 1/"                 \
   | bc
 }
 
@@ -131,36 +180,22 @@ if [ ! -w "$PWD" ] ; then
 
 fi
 
-# check if 'done' directory is missing
-if [ ! -d "done" ] ; then
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate 'done' directory"
+  failmsg "unable to locate directory: \"$FIRSTBOX\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# check if config file is missing
-if [ ! -f "$CFGFILE" ] ; then
+# check if last box is missing
+if [ ! -d "$LASTBOX" ] ; then
 
   # notify user
-  failmsg "unable to locate config file: \"$CFGFILE\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# get number of sections
-SECTIONS=$(sed -nre "s/${BLOBB}SECTIONS${BLOBB}=${BLOBB}([[:digit:]]+)${BLOBB}/\1/p ; T ; q" "$CFGFILE")
-
-# check if number of sections is empty
-if [ -z "$SECTIONS" ] ; then
-
-  # notify user
-  failmsg "unable to read number of sections"
+  failmsg "unable to locate directory: \"$LASTBOX\""
 
   # signalize trouble
   exit 1
@@ -171,7 +206,7 @@ fi
 if [ ! -s "$CFCFILE" ] ; then
 
   # notify user
-  failmsg "don't know which flashcard you hit"
+  failmsg "no flashcard specified"
 
   # signalize trouble
   exit 1
@@ -192,80 +227,39 @@ if [ ! -f "$FLASHCARD" ] ; then
 
 fi
 
-# split path
-DNAME=$(dirname "$FLASHCARD" | sed -re "s|.+|./&/| ; s|//$|/|")
-BNAME=$(basename "$FLASHCARD")
-SECTION=$(sed -nre "s|.*/([^/]+)/$|\1|p" <<< "$DNAME")
-FIXPART=$(sed -re "s|^[[:digit:]]{6}-||" <<< "$BNAME")
+# get next box
+NEWBOX=$(get_next_box "$FLASHCARD")
 
-# check section part
-if [ -z "$SECTION" ] ; then
+# check box
+if [ -z "$NEWBOX" ] ; then
 
   # notify user
-  failmsg "unable to get current section from path: \"$FLASHCARD\""
+  failmsg "unable to resolve next box: \"$FLASHCARD\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# treat new as zero
-[ "$SECTION" == "new" ] && SECTION=0
+# get next box index
+NEWNUM=$(get_next_number "$NEWBOX")
 
-# check name part
-if [ -z "$FIXPART" ] ; then
+# check index
+if [ -z "$NEWBOX" ] ; then
 
   # notify user
-  failmsg "unable to get filename from path: \"$FLASHCARD\""
+  failmsg "unable to resolve box index: \"$NEWBOX\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# flashcard from 'done' section found
-if [ "$SECTION" == "done" ] ; then
-
-  # set next section
-  NEXTSECTION="done"
-
-# flashcard from numbered section found
-else
-
-  # remove leading zeros
-  NUM=$(sed -nre "s/^0*([[:digit:]]+)$/\1/p" <<< "$SECTION")
-
-  # check digit
-  if [ -z "$NUM" ] ; then
-
-    # notify user
-    failmsg "no numerical section given: \"$FLASHCARD\""
-
-    # signalize trouble
-    exit 1
-
-  fi
-
-  # check limit
-  if (( NUM >= SECTIONS )) ; then
-
-    # set final section
-    NEXTSECTION="done"
-
-  else
-
-    # set next section
-    NEXTSECTION=$(printf "%02d" "$(bc <<< "$NUM + 1")")
-
-  fi
-
-fi
-
-# get highest number + 1
-NEXTNUMBER=$(printf "%06d" "$(get_next_number "$NEXTSECTION")")
+# get part of the filename to keep
+FIXPART=$(basename "$FLASHCARD" | sed -re "s|^[[:digit:]]{6}-||")
 
 # create target path
-TARGETPATH="$NEXTSECTION/$NEXTNUMBER-$FIXPART"
+TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
 
 # just to make sure
 if [ -f "$TARGETPATH" ] ; then
@@ -288,7 +282,7 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
   truncate -s 0 "$CFCFILE"
 
   # show progress
-  donemsg "$FIXPART --> $NEXTSECTION"
+  donemsg "$FIXPART --> $NEWBOX"
 
 else
 
