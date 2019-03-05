@@ -101,58 +101,10 @@ function get_box()
 }
 
 # ------------
-# get_prev_box
-# ------------
-#
-# $1  box123
-#
-function get_prev_box()
-{
-  # first box given
-  if [ "$1" == "$FIRSTBOX" ] ; then
-
-    # stay in first box
-    echo "$FIRSTBOX"
-
-    # signalize success
-    return 0
-
-  fi
-
-  # find next box (print without starting point)
-  find -maxdepth  "1"              \
-       -type      "d"              \
-       -regextype "posix-extended" \
-       -regex     ".+/box[^/]{3}$" \
-       -printf    "%P\n"           \
-  | sort --reverse                 \
-  | sed --quiet                    \
-        --regexp-extended          \
-        --expression="
-
-          # current box found
-          /^$1/ {
-
-            # read next line
-            n
-
-            # push to stdout
-            /[^[:space:]]/ { p }
-
-            # finish after first printed line
-            q
-          }
-        "
-
-  # signalize success
-  return 0
-}
-
-# ------------
 # get_next_box
 # ------------
 #
-# $1  flashcard path
+# $1  box123
 #
 function get_next_box()
 {
@@ -284,6 +236,9 @@ if [ ! -f "$FLASHCARD" ] ; then
 
 fi
 
+# get part of the filename to keep
+FIXPART=$(basename "$FLASHCARD" | sed -re "s|^[[:digit:]]{6}-||")
+
 # get current box
 NOWBOX=$(get_box "$FLASHCARD")
 
@@ -325,9 +280,6 @@ if [ -z "$NEWNUM" ] ; then
   exit 1
 
 fi
-
-# get part of the filename to keep
-FIXPART=$(basename "$FLASHCARD" | sed -re "s|^[[:digit:]]{6}-||")
 
 # create target path
 TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
