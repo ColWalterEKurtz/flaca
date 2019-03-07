@@ -1,0 +1,269 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="DEFAULT"
+
+# set options to accept
+readonly KNOWN_OPTIONS=":hv"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    # show help
+    "h") OPMODE="SHOW_HELP"
+         ;;
+
+    # show version
+    "v") OPMODE="SHOW_VERSION"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check number of passed parameters
+if (( $# != 1 )) ; then
+
+  # show syntax
+  echo
+  echo "$(basename "$0") <dir>"
+  echo
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  failmsg "no permission to write here: \"$PWD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
+
+  # notify user
+  failmsg "unable to locate directory: \"$FIRSTBOX\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# create temporary files
+TMPLOCAL=$(mktemp --suffix=".local")
+TMPREMOTE=$(mktemp --suffix=".remote")
+
+# clean up on exit
+trap 'rm -f "$TMPLOCAL" "$TMPREMOTE"' EXIT
+
+# show progress
+infomsg "searching local pdf files"
+
+# find local pdf files
+find -type      "f"                 \
+     -regextype "posix-extended"    \
+     -regex     ".+\.[Pp][Dd][Ff]$" \
+| sort                              \
+| while read -r FLASHCARD
+do
+
+  sha1sum "$FLASHCARD"
+
+done | sort > "$TMPLOCAL"
+
+# show progress
+infomsg "searching remote pdf files"
+
+# find remote pdf files
+find "$1"                           \
+     -type      "f"                 \
+     -regextype "posix-extended"    \
+     -regex     ".+\.[Pp][Dd][Ff]$" \
+| sort                              \
+| while read -r FLASHCARD
+do
+
+  sha1sum "$FLASHCARD"
+
+done | sort > "$TMPREMOTE"
+
+# show progress
+infomsg "searching missing pdf files"
+
+# find hash values that are unique to file 2
+comm -13 <(sed -re "s/ .+//" "$TMPLOCAL")  \
+         <(sed -re "s/ .+//" "$TMPREMOTE") \
+| while read -r HASHKEY
+do
+
+  # get related source file
+  SRCFILE=$(sed -nre "s/^$HASHKEY[[:space:]]+([^[:space:]].+)/\1/p" "$TMPREMOTE")
+
+  # remove leading counter
+  FIXPART=$(basename "$SRCFILE" | sed -re "s/^[[:digit:]]{6}-//")
+
+  # create target path
+  TARGETPATH=$(printf "%s/%s" "$FIRSTBOX" "$FIXPART")
+
+  # check if file already exists
+  if [ -f "$TARGETPATH" ] ; then
+
+    # notify user
+    warnmsg "target file already exists: \"$TARGETPATH\""
+
+    # create new target path
+    TARGETPATH=$(printf "%s/%s-%s" "$FIRSTBOX" "$HASHKEY" "$FIXPART")
+
+    # check if file still exists
+    if [ -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "target file already exists: \"$TARGETPATH\""
+
+      # signalize trouble
+      exit 1
+
+    fi
+
+  fi
+
+  # copy source file to first box
+  cp "$SRCFILE" "$TARGETPATH" &>"/dev/null"
+
+  if [ -f "$TARGETPATH" ] ; then
+
+    # show progress
+    donemsg "file imported: $SRCFILE"
+
+  else
+
+    # notify user
+    failmsg "unable to copy file: \"$SRCFILE\""
+
+    # signalize trouble
+    exit 1
+
+  fi
+
+done
+
+# signalize success
+exit 0
+
