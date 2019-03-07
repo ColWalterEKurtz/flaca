@@ -1,0 +1,293 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# set name of the file that holds the path of the current fashcard
+readonly CFCFILE=".flaca.cfc"
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="DEFAULT"
+
+# set options to accept
+readonly KNOWN_OPTIONS=":hv"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    # show help
+    "h") OPMODE="SHOW_HELP"
+         ;;
+
+    # show version
+    "v") OPMODE="SHOW_VERSION"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  failmsg "no permission to write here: \"$PWD\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
+
+  # notify user
+  failmsg "unable to locate directory: \"$FIRSTBOX\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if last box is missing
+if [ ! -d "$LASTBOX" ] ; then
+
+  # notify user
+  failmsg "unable to locate directory: \"$LASTBOX\""
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# check if a flashcard is still active
+if [ -s "$CFCFILE" ] ; then
+
+  # get path from 'current-flashcard' file
+  FLASHCARD=$(sed -nre "/^[[:space:]]*$/ { d } ; p ; q" "$CFCFILE")
+
+  # notify user
+  warnmsg "move your active flashcard first: $FLASHCARD"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# find all box directories (skip first box)
+find -maxdepth  "1"              \
+     -type      "d"              \
+     -regextype "posix-extended" \
+     -regex     ".+/box[^/]{3}$" \
+     -printf    "%P\n"           \
+| sed -re "/^$FIRSTBOX$/ d"      \
+| sort                           \
+| while read -r BOXNAME
+do
+
+  # show progress
+  infomsg "squeezing $BOXNAME"
+
+  # initialize file counter
+  COUNTER=0
+
+  # first run: add '@' counter to all pdf files
+  find "$BOXNAME"                     \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
+  | while read -r FLASHCARD
+  do
+
+    # step counter
+    (( COUNTER += 1 ))
+
+    # remove leading counter
+    FIXPART=$(basename "$FLASHCARD" | sed -re "s|^[[:digit:]]{6}-||")
+
+    # set new path
+    TARGETPATH=$(printf "%s/@%06d-%s" "$BOXNAME" "$COUNTER" "$FIXPART")
+
+    # rename flashcard
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$FLASHCARD" ] || [ ! -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "unable to rename file: \"$FLASHCARD\""
+
+      # signalize trouble
+      exit 1
+
+    else
+
+      # show progress
+      donemsg "$FLASHCARD --> $TARGETPATH"
+
+    fi
+
+  done
+
+  # second run: remove leading '@' character from all pdf filenames
+  find "$BOXNAME"                     \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
+  | while read -r FLASHCARD
+  do
+
+    # remove leading '@' character
+    FIXPART=$(basename "$FLASHCARD" | sed -nre "s|^@||p")
+
+    # check if '@' character has been removed
+    if [ -z "$FIXPART" ] ; then
+
+      # notify user
+      warnmsg "skipping file: \"$FLASHCARD\""
+
+      # next file
+      continue
+
+    fi
+
+    # set new path
+    TARGETPATH=$(printf "%s/%s" "$BOXNAME" "$FIXPART")
+
+    # rename flashcard
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$FLASHCARD" ] || [ ! -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "unable to rename file: \"$FLASHCARD\""
+
+      # signalize trouble
+      exit 1
+
+    else
+
+      # show progress
+      donemsg "$FLASHCARD --> $TARGETPATH"
+
+    fi
+
+  done
+
+done
+
+# signalize success
+exit 0
+
