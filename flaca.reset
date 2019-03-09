@@ -100,71 +100,6 @@ function get_box()
   sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1"
 }
 
-# --------------
-# move_flashcard
-# --------------
-#
-# $1  filename
-#
-function move_flashcard()
-{
-  # get current box
-  local NOWBOX=$(get_box "$1")
-
-  # get part of the filename to keep
-  local FIXPART=$(basename "$1" | sed -re "s|^[[:digit:]]{6}-||")
-
-  # set new path
-  local TARGETPATH="$FIRSTBOX/$FIXPART"
-
-  # check if file already exists
-  while [ -f "$TARGETPATH" ]
-  do
-
-    # notify user
-    warnmsg "file already exists: \"$TARGETPATH\""
-
-    # get unique hash value
-    local UNIQUE=$(date -uIns | sha1sum | sed -re "s/ .+//")
-
-    # set new path
-    local TARGETPATH="$FIRSTBOX/$UNIQUE-$FIXPART"
-
-  done
-
-  # check operation mode
-  if [ "$OPMODE" == "EXECUTE" ] ; then
-
-    # move flashcard to first box
-    mv -f "$1" "$TARGETPATH" &>"/dev/null"
-
-    # check operation
-    if [ -f "$TARGETPATH" ] && [ ! -f "$1" ] ; then
-
-      # show progress
-      donemsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
-
-    else
-
-      # notify user
-      failmsg "flashcard could not be moved: \"$1\""
-
-      # signalize trouble
-      return 1
-
-    fi
-
-  else
-
-    # just show operation
-    infomsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
-
-  fi
-
-  # signalize success
-  return 0
-}
-
 # ------------------------------------------------------------------------------
 # options                                                                options
 # ------------------------------------------------------------------------------
@@ -248,19 +183,94 @@ if [ ! -d "$LASTBOX" ] ; then
 
 fi
 
-# find all box directories (skip first box)
-find -maxdepth  "1"              \
-     -type      "d"              \
-     -regextype "posix-extended" \
-     -regex     ".+/box[^/]{3}$" \
-     -printf    "%P\n"           \
-| sed -re "/^$FIRSTBOX$/ d"      \
-| sort                           \
-| while read -r BOXNAME
+# initialize counter
+COUNTER=0
+
+# find all flashcards from box directories (lowest to highest)
+find -type      "f"                               \
+     -regextype "posix-extended"                  \
+     -regex     ".+/box[^/]{3}/.+\.[Pp][Dd][Ff]$" \
+     -printf    "%P\n"                            \
+| sort                                            \
+| while read -r FLASHCARD
 do
 
-  # find all pdf files from this box
-  find "$BOXNAME"                     \
+  # step counter
+  (( COUNTER += 1 ))
+
+  # get current box
+  NOWBOX=$(get_box "$FLASHCARD")
+
+  # remove current counter
+  FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
+
+  # set new path
+  TARGETPATH=$(printf "%s/@%06d-%s" "$FIRSTBOX" "$COUNTER" "$FIXPART")
+
+  # check if file already exists
+  if [ -f "$TARGETPATH" ] ; then
+
+    # notify user
+    warnmsg "file already exists: \"$TARGETPATH\""
+
+    # get hash value
+    HASH=$(sha1sum "$FLASHCARD" | sed -re "s/ .+//")
+
+    # set new path
+    TARGETPATH=$(printf "%s/@%06d-%s-%s" ) "$FIRSTBOX" "$COUNTER" "$HASH" "$FIXPART"
+
+    # check if file still exists
+    if [ -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "file already exists: \"$TARGETPATH\""
+
+      # signalize trouble
+      exit 1
+
+    fi
+
+  fi
+
+  # check operation mode
+  if [ "$OPMODE" == "EXECUTE" ] ; then
+
+    # move flashcard to first box
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
+
+      # show progress
+      donemsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
+
+    else
+
+      # notify user
+      failmsg "flashcard could not be moved: \"$FLASHCARD\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+  else
+
+    # just show operation
+    infomsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
+
+  fi
+
+done
+
+# check operation mode
+if [ "$OPMODE" == "EXECUTE" ] ; then
+
+  # show progress
+  infomsg "updating flashcard numbers"
+
+  # second run: remove leading '@' characters
+  find "$FIRSTBOX"                    \
        -maxdepth  "1"                 \
        -type      "f"                 \
        -regextype "posix-extended"    \
@@ -269,15 +279,35 @@ do
   | while read -r FLASHCARD
   do
 
-    # move flashcard to first box
-    move_flashcard "$FLASHCARD"
+    # remove leading '@' character
+    FIXPART=$(basename "$FLASHCARD" | sed -nre "s|^@||p")
+
+    # check if '@' character has been removed
+    if [ -z "$FIXPART" ] ; then
+
+      # next file
+      continue
+
+    fi
+
+    # set new path
+    TARGETPATH=$(printf "%s/%s" "$FIRSTBOX" "$FIXPART")
+
+    # rename flashcard
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$FLASHCARD" ] || [ ! -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "unable to rename file: \"$FLASHCARD\""
+
+      # signalize trouble
+      exit 1
+
+    fi
 
   done
-
-done
-
-# check operation mode
-if [ "$OPMODE" == "EXECUTE" ] ; then
 
   # reset file that holds the path of the current flashcard
   truncate -s 0 "$CFCFILE"
