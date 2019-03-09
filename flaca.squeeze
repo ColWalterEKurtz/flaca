@@ -181,19 +181,18 @@ if [ -s "$CFCFILE" ] ; then
 
 fi
 
-# find all box directories (skip first box)
+# find all box directories
 find -maxdepth  "1"              \
      -type      "d"              \
      -regextype "posix-extended" \
      -regex     ".+/box[^/]{3}$" \
      -printf    "%P\n"           \
-| sed -re "/^$FIRSTBOX$/ d"      \
 | sort                           \
 | while read -r BOXNAME
 do
 
   # show progress
-  infomsg "squeezing $BOXNAME"
+  infomsg "creating temporary numbers: $BOXNAME"
 
   # initialize file counter
   COUNTER=0
@@ -212,7 +211,7 @@ do
     (( COUNTER += 1 ))
 
     # remove leading counter
-    FIXPART=$(basename "$FLASHCARD" | sed -re "s|^[[:digit:]]{6}-||")
+    FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
 
     # set new path
     TARGETPATH=$(printf "%s/@%06d-%s" "$BOXNAME" "$COUNTER" "$FIXPART")
@@ -238,6 +237,9 @@ do
 
   done
 
+  # show progress
+  infomsg "updating flashcard numbers: $BOXNAME"
+
   # second run: remove leading '@' character from all pdf filenames
   find "$BOXNAME"                     \
        -maxdepth  "1"                 \
@@ -253,9 +255,6 @@ do
 
     # check if '@' character has been removed
     if [ -z "$FIXPART" ] ; then
-
-      # notify user
-      warnmsg "skipping file: \"$FLASHCARD\""
 
       # next file
       continue
@@ -280,7 +279,7 @@ do
     else
 
       # show progress
-      donemsg "$FLASHCARD --> $TARGETPATH"
+      donemsg "$TARGETPATH <-- $FLASHCARD"
 
     fi
 
