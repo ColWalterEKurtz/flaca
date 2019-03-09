@@ -88,18 +88,6 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
-# -------
-# get_box
-# -------
-#
-# $1  flashcard path
-#
-function get_box()
-{
-  # get current box (last directory)
-  sed -nre "s|.*(box[^/]{3})/[^/]+$|\1|p" <<< "$1"
-}
-
 # ------------------------------------------------------------------------------
 # options                                                                options
 # ------------------------------------------------------------------------------
@@ -183,7 +171,10 @@ if [ ! -d "$LASTBOX" ] ; then
 
 fi
 
-# initialize counter
+# show progress
+infomsg "creating temporary numbers"
+
+# initialize file counter
 COUNTER=0
 
 # find all flashcards from box directories (lowest to highest)
@@ -197,9 +188,6 @@ do
 
   # step counter
   (( COUNTER += 1 ))
-
-  # get current box
-  NOWBOX=$(get_box "$FLASHCARD")
 
   # remove current counter
   FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
@@ -242,7 +230,7 @@ do
     if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
 
       # show progress
-      donemsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
+      donemsg "$FLASHCARD --> $TARGETPATH"
 
     else
 
@@ -257,7 +245,7 @@ do
   else
 
     # just show operation
-    infomsg "$FIXPART: $FIRSTBOX <-- $NOWBOX"
+    infomsg "$FLASHCARD --> $TARGETPATH"
 
   fi
 
@@ -304,6 +292,11 @@ if [ "$OPMODE" == "EXECUTE" ] ; then
 
       # signalize trouble
       exit 1
+
+    else
+
+      # show progress
+      donemsg "$TARGETPATH <-- $FLASHCARD"
 
     fi
 
