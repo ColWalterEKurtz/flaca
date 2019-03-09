@@ -207,7 +207,7 @@ done | sort > "$TMPREMOTE"
 # show progress
 infomsg "searching missing pdf files"
 
-# find hash values that are unique to file 2
+# find hash values that are unique to file 2 (remote pdf files)
 comm -13 <(sed -re "s/ .+//" "$TMPLOCAL")  \
          <(sed -re "s/ .+//" "$TMPREMOTE") \
 | while read -r HASHKEY
