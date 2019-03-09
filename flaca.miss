@@ -262,30 +262,24 @@ if [ "$NEWBOX" == "$LASTBOX" ] ; then
   # move flashcard to first box
   NEWBOX="$FIRSTBOX"
 
-  # create target path
-  TARGETPATH=$(printf "%s/%s" "$NEWBOX" "$FIXPART")
+fi
 
-# use smallest limited box
-else
+# get next box index
+NEWNUM=$(get_next_number "$NEWBOX")
 
-  # get next box index
-  NEWNUM=$(get_next_number "$NEWBOX")
+# check index
+if [ -z "$NEWNUM" ] ; then
 
-  # check index
-  if [ -z "$NEWNUM" ] ; then
+  # notify user
+  failmsg "unable to resolve box index: \"$NEWBOX\""
 
-    # notify user
-    failmsg "unable to resolve box index: \"$NEWBOX\""
-
-    # signalize trouble
-    exit 1
-
-  fi
-
-  # create target path
-  TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
+  # signalize trouble
+  exit 1
 
 fi
+
+# create target path
+TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
 
 # just to make sure
 if [ -f "$TARGETPATH" ] ; then
