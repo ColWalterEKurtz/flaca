@@ -1,0 +1,231 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# set name of the file that holds the path of the current fashcard
+readonly CFCFILE=".flaca.cfc"
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# -------------------
+# get_box_directories
+# -------------------
+#
+# This function pushes all box directories to stdout,
+# that are located in PWD. The names are sorted alphabetically.
+#
+function get_box_directories()
+{
+  find "$PWD"                      \
+       -maxdepth  "1"              \
+       -type      "d"              \
+       -regextype "posix-extended" \
+       -regex     ".+/box[^/]{3}$" \
+       -printf    "%P\n"           \
+  | sort
+}
+
+# ------------
+# get_box_size
+# ------------
+#
+# This function pushes the number of pdf files to stdout,
+# that can be put into the given directory.
+#
+# $1  directory
+#
+function get_box_size()
+{
+  # regular expression that matches a box directory
+  local readonly XPBOX="box[[:digit:]]{3}"
+
+  # crop box directory and size
+  echo "$1"                            \
+  | sed -re "s|.*/($XPBOX)/[^/]*$|\1|" \
+  | sed -re "s|.*/($XPBOX)$|\1|"       \
+  | sed -re "s|^($XPBOX)/[^/]*$|\1|"   \
+  | sed -nre "s/^box0*([[:digit:]]+)$/\1/p"
+}
+
+# -----------------------
+# get_number_of_pdf_files
+# -----------------------
+#
+# This function pushes the number of pdf files to stdout,
+# that are located in the given directory.
+#
+# $1  directory
+#
+function get_number_of_pdf_files()
+{
+  # get number of pdf files in this directory
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+       -printf    "."                 \
+  | wc -c
+}
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# check permission to write
+if [ ! -w "$PWD" ] ; then
+
+  # notify user
+  warnmsg "no permission to write here: \"$PWD\""
+
+fi
+
+# check if first box is missing
+if [ ! -d "$FIRSTBOX" ] ; then
+
+  # notify user
+  warnmsg "unable to locate directory: \"$FIRSTBOX\""
+
+fi
+
+# check if last box is missing
+if [ ! -d "$LASTBOX" ] ; then
+
+  # notify user
+  warnmsg "unable to locate directory: \"$LASTBOX\""
+
+fi
+
+echo
+
+# total number of flashcards
+TOTAL=0
+
+# find box directories
+while read -r BOXDIR
+do
+
+  # get size of this box
+  FMAX=$(get_box_size "$BOXDIR")
+
+  # get number of flashcards in this box
+  FNUM=$(get_number_of_pdf_files "$BOXDIR")
+
+  if (( FNUM > FMAX )) ; then
+
+    # show number of flashcards in this box directory
+    printf "  %s: %5d %s%s%s\n" "$BOXDIR" "$FNUM" "$YELLOW" "+" "$NONE"
+
+  else
+
+    # show number of flashcards in this box directory
+    printf "  %s: %5d\n" "$BOXDIR" "$FNUM"
+
+  fi
+
+  # update total number
+  (( TOTAL += FNUM ))
+
+done < <(get_box_directories)
+
+# show total number of flashcards
+printf "  %s%-6s: %5d%s\n" "$CYAN" "total" "$TOTAL" "$NONE"
+
+echo
+
+# check if a flashcard is still active
+if [ -s "$CFCFILE" ] ; then
+
+  # get path from 'current-flashcard' file
+  FLASHCARD=$(sed -nre "/^[[:space:]]*$/ { d } ; p ; q" "$CFCFILE")
+
+  # show active flashcard
+  echo "  active flashcard: $FLASHCARD"
+  echo
+
+fi
+
+# signalize success
+exit 0
+
