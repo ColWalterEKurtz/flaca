@@ -292,7 +292,7 @@ if [ -f "$TARGETPATH" ] ; then
 
 fi
 
-# move flashcard to next section
+# move flashcard
 mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
 
 # check operation
