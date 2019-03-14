@@ -88,15 +88,350 @@ function donemsg()
   echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
 }
 
+# -------------------
+# get_box_directories
+# -------------------
+#
+# This function pushes all box directories to stdout,
+# that are located in PWD. The names are sorted alphabetically.
+#
+function get_box_directories()
+{
+  find "$PWD"                      \
+       -maxdepth  "1"              \
+       -type      "d"              \
+       -regextype "posix-extended" \
+       -regex     ".+/box[^/]{3}$" \
+       -printf    "%P\n"           \
+  | sort
+}
+
+# -------------
+# get_pdf_files
+# -------------
+#
+# This function pushes all pdf files to stdout, that are located
+# in the given directory. The names are sorted alphabetically.
+#
+# $1  directory
+#
+function get_pdf_files()
+{
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort
+}
+
+# -----------------------
+# get_number_of_pdf_files
+# -----------------------
+#
+# This function pushes the number of pdf files to stdout,
+# that are located in the given directory .
+#
+# $1  directory
+#
+function get_number_of_pdf_files()
+{
+  # get number of pdf files in this directory
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+       -printf    "."                 \
+  | wc -c
+}
+
+# ---------------
+# get_next_number
+# ---------------
+#
+# This function pushes the next free counter to stdout,
+# that can be used in the given directory.
+#
+# $1  directory
+#
+function get_next_number()
+{
+  {
+    # push dummy file to stdout
+    echo "000000-dummy.pdf"
+
+    # get pdf files from this directory (print last part only)
+    find "$1"                                                \
+         -maxdepth  "1"                                      \
+         -type      "f"                                      \
+         -regextype "posix-extended"                         \
+         -regex     ".+/[[:digit:]]{6}-[^/]+\.[Pp][Dd][Ff]$" \
+         -printf    "%f\n"
+  }                                                          \
+  | sort                                                     \
+  | tail -n 1                                                \
+  | sed -re "s/^0*([[:digit:]]+)-.*/\1 + 1/"                 \
+  | bc
+}
+
+# ---------------
+# list_flashcards
+# ---------------
+#
+#
+#
+function list_flashcards()
+{
+  # total number of flashcards
+  local TOTAL=0
+
+  # find box directories
+  while read -r BOXDIR
+  do
+
+    # get number of flashcards in this box
+    FNUM=$(get_number_of_pdf_files "$BOXDIR")
+
+    # update total number
+    (( TOTAL += FNUM ))
+
+    # show number of flashcards in this box directory
+    printf "  %s: %5d\n" "$BOXDIR" "$FNUM"
+
+  done < <(get_box_directories)
+
+  # show total number of flashcards
+  printf "  %-6s: %5d\n" "total" "$TOTAL"
+
+  # signalize success
+  return 0
+}
+
+# ----------
+# full_reset
+# ----------
+#
+#
+#
+function full_reset()
+{
+  # show progress
+  infomsg "creating temporary numbers"
+
+  # initialize file counter
+  local COUNTER=0
+
+  # find all flashcards from box directories (lowest to highest)
+  find -type      "f"                               \
+       -regextype "posix-extended"                  \
+       -regex     ".+/box[^/]{3}/.+\.[Pp][Dd][Ff]$" \
+       -printf    "%P\n"                            \
+  | sort                                            \
+  | while read -r FLASHCARD
+  do
+
+    # step counter
+    (( COUNTER += 1 ))
+
+    # remove current counter
+    local FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
+
+    # set new path
+    local TARGETPATH=$(printf "%s/@%06d-%s" "$FIRSTBOX" "$COUNTER" "$FIXPART")
+
+    # check if file already exists
+    if [ -f "$TARGETPATH" ] ; then
+
+      # notify user
+      warnmsg "file already exists: \"$TARGETPATH\""
+
+      # get hash value
+      local HASH=$(sha1sum "$FLASHCARD" | sed -re "s/ .+//")
+
+      # set new path
+      local TARGETPATH=$(printf "%s/@%06d-%s-%s" ) "$FIRSTBOX" "$COUNTER" "$HASH" "$FIXPART"
+
+      # check if file still exists
+      if [ -f "$TARGETPATH" ] ; then
+
+        # notify user
+        failmsg "file already exists: \"$TARGETPATH\""
+
+        # signalize trouble
+        return 1
+
+      fi
+
+    fi
+
+    # move flashcard to first box
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
+
+      # show progress
+      donemsg "$FLASHCARD --> $TARGETPATH"
+
+    else
+
+      # notify user
+      failmsg "flashcard could not be moved: \"$FLASHCARD\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+  done
+
+  # show progress
+  infomsg "updating flashcard numbers"
+
+  # second run: remove leading '@' characters
+  while read -r FLASHCARD
+  do
+
+    # remove leading '@' character
+    local FIXPART=$(basename "$FLASHCARD" | sed -nre "s/^@//p")
+
+    # check if '@' character has been removed
+    if [ -z "$FIXPART" ] ; then
+
+      # next file
+      continue
+
+    fi
+
+    # set new path
+    local TARGETPATH=$(printf "%s/%s" "$FIRSTBOX" "$FIXPART")
+
+    # rename flashcard
+    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$FLASHCARD" ] || [ ! -f "$TARGETPATH" ] ; then
+
+      # notify user
+      failmsg "unable to rename file: \"$FLASHCARD\""
+
+      # signalize trouble
+      return 1
+
+    else
+
+      # show progress
+      donemsg "$TARGETPATH <-- $FLASHCARD"
+
+    fi
+
+  done < <(get_pdf_files "$FIRSTBOX")
+
+  # reset file that holds the path of the current flashcard
+  truncate -s 0 "$CFCFILE"
+
+  # signalize success
+  return 0
+}
+
+# -------------
+# partial_reset
+# -------------
+#
+#
+#
+function partial_reset()
+{
+  # path of the previous box
+  local PREVBOX=""
+
+  # find all box directories (lowest to highest)
+  while read -r BOXDIR
+  do
+
+    # check if previous box is defined
+    if [ -n "$PREVBOX" ] ; then
+
+      # get initial box index once
+      local NEWNUM=$(get_next_number "$PREVBOX")
+
+      # check index
+      if [ -z "$NEWNUM" ] ; then
+
+        # notify user
+        failmsg "unable to resolve box index: \"$PREVBOX\""
+
+        # signalize trouble
+        return 1
+
+      fi
+
+      # move all flashcards to previous box
+      while read -r FLASHCARD
+      do
+
+        # remove current box index
+        local FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
+
+        # create target path
+        local TARGETPATH=$(printf "%s/%06d-%s" "$PREVBOX" "$NEWNUM" "$FIXPART")
+
+        # just to make sure not to clobber existing files
+        if [ -f "$TARGETPATH" ] ; then
+
+          # notify user
+          failmsg "target file already exists: \"$TARGETPATH\""
+
+          # signalize trouble
+          return 1
+
+        fi
+
+        # move flashcard to previous box
+        mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
+
+        # check operation
+        if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
+
+          # show progress
+          donemsg "$FIXPART: $PREVBOX <-- $BOXDIR"
+
+        else
+
+          # notify user
+          failmsg "flashcard could not be moved: \"$FLASHCARD\""
+
+          # signalize trouble
+          return 1
+
+        fi
+
+        # step counter
+        (( NEWNUM += 1 ))
+
+      done < <(get_pdf_files "$BOXDIR")
+
+    fi
+
+    # update previous box
+    local PREVBOX="$BOXDIR"
+
+  done < <(get_box_directories)
+
+  # signalize success
+  return 0
+}
+
 # ------------------------------------------------------------------------------
 # options                                                                options
 # ------------------------------------------------------------------------------
 
 # set default values
-OPMODE="DRYRUN"
+OPMODE="NOTHING"
 
 # set options to accept
-readonly KNOWN_OPTIONS=":hvx"
+readonly KNOWN_OPTIONS=":hv01"
 
 # check passed options
 while getopts "$KNOWN_OPTIONS" OPTION "$@"
@@ -104,8 +439,12 @@ do
 
   case "$OPTION" in
 
-    # really move files
-    "x") OPMODE="EXECUTE"
+    # full reset
+    "0") OPMODE="FULL"
+         ;;
+
+    # partial reset
+    "1") OPMODE="PARTIAL"
          ;;
 
     # show help
@@ -171,146 +510,37 @@ if [ ! -d "$LASTBOX" ] ; then
 
 fi
 
-# show progress
-infomsg "creating temporary numbers"
+# list flashcards
+if [ "$OPMODE" == "NOTHING" ] ; then
 
-# initialize file counter
-COUNTER=0
+  echo
+  echo "call  $(basename "$0") -0  to move all flashcards back to $FIRSTBOX"
+  echo "call  $(basename "$0") -1  to move each fashcard back one box"
+  echo
 
-# find all flashcards from box directories (lowest to highest)
-find -type      "f"                               \
-     -regextype "posix-extended"                  \
-     -regex     ".+/box[^/]{3}/.+\.[Pp][Dd][Ff]$" \
-     -printf    "%P\n"                            \
-| sort                                            \
-| while read -r FLASHCARD
-do
+# move all flashcards back to FIRSTBOX
+elif [ "$OPMODE" == "FULL" ] ; then
 
-  # step counter
-  (( COUNTER += 1 ))
+  full_reset
 
-  # remove current counter
-  FIXPART=$(basename "$FLASHCARD" | sed -re "s/^[[:digit:]]{6}-//")
+# move each flashcard back one box
+elif [ "$OPMODE" == "PARTIAL" ] ; then
 
-  # set new path
-  TARGETPATH=$(printf "%s/@%06d-%s" "$FIRSTBOX" "$COUNTER" "$FIXPART")
+  # check if a flashcard is still active
+  if [ -s "$CFCFILE" ] ; then
 
-  # check if file already exists
-  if [ -f "$TARGETPATH" ] ; then
+    # get path from 'current-flashcard' file
+    FLASHCARD=$(sed -nre "/^[[:space:]]*$/ { d } ; p ; q" "$CFCFILE")
 
     # notify user
-    warnmsg "file already exists: \"$TARGETPATH\""
+    warnmsg "move your active flashcard first: $FLASHCARD"
 
-    # get hash value
-    HASH=$(sha1sum "$FLASHCARD" | sed -re "s/ .+//")
-
-    # set new path
-    TARGETPATH=$(printf "%s/@%06d-%s-%s" ) "$FIRSTBOX" "$COUNTER" "$HASH" "$FIXPART"
-
-    # check if file still exists
-    if [ -f "$TARGETPATH" ] ; then
-
-      # notify user
-      failmsg "file already exists: \"$TARGETPATH\""
-
-      # signalize trouble
-      exit 1
-
-    fi
+    # signalize trouble
+    exit 1
 
   fi
 
-  # check operation mode
-  if [ "$OPMODE" == "EXECUTE" ] ; then
-
-    # move flashcard to first box
-    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
-
-    # check operation
-    if [ -f "$TARGETPATH" ] && [ ! -f "$FLASHCARD" ] ; then
-
-      # show progress
-      donemsg "$FLASHCARD --> $TARGETPATH"
-
-    else
-
-      # notify user
-      failmsg "flashcard could not be moved: \"$FLASHCARD\""
-
-      # signalize trouble
-      return 1
-
-    fi
-
-  else
-
-    # just show operation
-    infomsg "$FLASHCARD --> $TARGETPATH"
-
-  fi
-
-done
-
-# check operation mode
-if [ "$OPMODE" == "EXECUTE" ] ; then
-
-  # show progress
-  infomsg "updating flashcard numbers"
-
-  # second run: remove leading '@' characters
-  find "$FIRSTBOX"                    \
-       -maxdepth  "1"                 \
-       -type      "f"                 \
-       -regextype "posix-extended"    \
-       -regex     ".+\.[Pp][Dd][Ff]$" \
-  | sort                              \
-  | while read -r FLASHCARD
-  do
-
-    # remove leading '@' character
-    FIXPART=$(basename "$FLASHCARD" | sed -nre "s|^@||p")
-
-    # check if '@' character has been removed
-    if [ -z "$FIXPART" ] ; then
-
-      # next file
-      continue
-
-    fi
-
-    # set new path
-    TARGETPATH=$(printf "%s/%s" "$FIRSTBOX" "$FIXPART")
-
-    # rename flashcard
-    mv -f "$FLASHCARD" "$TARGETPATH" &>"/dev/null"
-
-    # check operation
-    if [ -f "$FLASHCARD" ] || [ ! -f "$TARGETPATH" ] ; then
-
-      # notify user
-      failmsg "unable to rename file: \"$FLASHCARD\""
-
-      # signalize trouble
-      exit 1
-
-    else
-
-      # show progress
-      donemsg "$TARGETPATH <-- $FLASHCARD"
-
-    fi
-
-  done
-
-  # reset file that holds the path of the current flashcard
-  truncate -s 0 "$CFCFILE"
-
-else
-
-  # notify user
-  echo
-  infomsg "this was a dry run: use -x option to move your files actually"
-  echo
+  partial_reset
 
 fi
 
