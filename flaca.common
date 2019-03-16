@@ -1,0 +1,433 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# this file holds the path of the active fashcard
+readonly ACTIVECARD=".active"
+
+# set fix box names
+readonly FIRSTBOX="box000"
+readonly LASTBOX="boxEND"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# ----
+# help
+# ----
+#
+# This function shows all available operations.
+#
+function help()
+{
+  sed --quiet           \
+      --regexp-extended \
+      --expression="
+
+        /^# -{3,60}$/,/.+\(\)$/ {
+
+          # colorize comments
+          s/^[[:space:]]*#.*/$CYAN&$NONE/
+
+          # add new line after function
+          s/^[[:space:]]*function[[:space:]]+.+/&\n/
+
+          p
+        }
+
+      "    \
+      "$0"
+}
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+# $1  message
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+# $1  message
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+# $1  message
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+# $1  message
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# -------------
+# get_first_box
+# -------------
+#
+# This function pushes the name of the directory to stdout,
+# that holds new flashcards.
+#
+function get_first_box()
+{
+  echo "$FIRSTBOX"
+}
+
+# ------------
+# get_last_box
+# ------------
+#
+# This function pushes the name of the directory to stdout,
+# that holds finished flashcards.
+#
+function get_last_box()
+{
+  echo "$LASTBOX"
+}
+
+# -----
+# check
+# -----
+#
+# This function checks if FIRSTBOX and LASTBOX directories are
+# present and if the current user has 'write' permission in PWD.
+#
+function check()
+{
+  # check if first box is missing
+  if [ ! -d "$FIRSTBOX" ] ; then
+
+    # notify user
+    failmsg "unable to locate directory: \"$FIRSTBOX\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # check if last box is missing
+  if [ ! -d "$LASTBOX" ] ; then
+
+    # notify user
+    failmsg "unable to locate directory: \"$LASTBOX\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # check permission to write
+  if [ ! -w "$PWD" ] ; then
+
+    # notify user
+    failmsg "no permission to write here: \"$PWD\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# --------------------
+# get_active_flashcard
+# --------------------
+#
+# This function pushes the name of the flashcard to stdout,
+# that is currently querried.
+#
+function get_active_flashcard()
+{
+  # check if ACTIVECARD file is present and not empty
+  if [ -s "$ACTIVECARD" ] ; then
+
+    # print first line that holds at least one non-space character
+    sed -nre "s/.*[^[:space:]].*/&/p ; T ; q" "$ACTIVECARD"
+
+  fi
+}
+
+# --------------------
+# set_active_flashcard
+# --------------------
+#
+# This function sets the name of the flashcard, that is currently querried.
+#
+# $1  flashcard path
+#
+function set_active_flashcard()
+{
+  echo "$1" > "$ACTIVECARD"
+}
+
+# -------------------
+# get_box_directories
+# -------------------
+#
+# This function pushes all box directories to stdout,
+# that are located in PWD. The names are sorted alphabetically.
+#
+function get_box_directories()
+{
+  find "$PWD"                      \
+       -maxdepth  "1"              \
+       -type      "d"              \
+       -regextype "posix-extended" \
+       -regex     ".+/box[^/]{3}$" \
+       -printf    "%P\n"           \
+  | sort
+}
+
+# ------------
+# get_box_size
+# ------------
+#
+# This function pushes the number of pdf files to stdout,
+# that can be put into the given directory.
+#
+# $1  directory
+#
+function get_box_size()
+{
+  # regular expression that matches a box directory
+  local readonly XPBOX="box[[:digit:]]{3}"
+
+  # crop box directory and size
+  echo "$1"                            \
+  | sed -re "s|.*/($XPBOX)/[^/]*$|\1|" \
+  | sed -re "s|.*/($XPBOX)$|\1|"       \
+  | sed -re "s|^($XPBOX)/[^/]*$|\1|"   \
+  | sed -nre "s/^box0*([[:digit:]]+)$/\1/p"
+}
+
+# -------------
+# get_pdf_files
+# -------------
+#
+# This function pushes all pdf files to stdout, that are located
+# in the given directory. The names are sorted alphabetically.
+#
+# $1  directory
+#
+function get_pdf_files()
+{
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort
+}
+
+# ------------------
+# get_first_pdf_file
+# ------------------
+#
+# This function pushes the first pdf file from the given directory to stdout.
+#
+# $1  directory
+#
+function get_first_pdf_file()
+{
+  # get first pdf file from this directory
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
+  | head -n 1
+}
+
+# -----------------------
+# get_number_of_pdf_files
+# -----------------------
+#
+# This function pushes the number of pdf files to stdout,
+# that are located in the given directory .
+#
+# $1  directory
+#
+function get_number_of_pdf_files()
+{
+  # get number of pdf files in this directory
+  find "$1"                           \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+       -printf    "."                 \
+  | wc -c
+}
+
+# ---------------
+# get_next_number
+# ---------------
+#
+# This function pushes the next free counter to stdout,
+# that can be used in the given directory.
+#
+# $1  directory
+#
+function get_next_number()
+{
+  {
+    # push dummy file to stdout
+    echo "000000-dummy.pdf"
+
+    # get pdf files from this directory (print last part only)
+    find "$1"                                                \
+         -maxdepth  "1"                                      \
+         -type      "f"                                      \
+         -regextype "posix-extended"                         \
+         -regex     ".+/[[:digit:]]{6}-[^/]+\.[Pp][Dd][Ff]$" \
+         -printf    "%f\n"
+  }                                                          \
+  | sort                                                     \
+  | tail -n 1                                                \
+  | sed -re "s/^0*([[:digit:]]+)-.*/\1 + 1/"                 \
+  | bc
+}
+
+# -------------------
+# get_highest_jamming
+# -------------------
+#
+# This function pushes the name of the first flashcard to stdout,
+# that comes from the highest overfull box.
+#
+function get_highest_jamming()
+{
+  # check each box (highest to lowest without checking LASTBOX)
+  while read -r BOXDIR
+  do
+
+    # get size of this box
+    local FMAX=$(get_box_size "$BOXDIR")
+
+    # get number of pdf files in this box
+    local FNUM=$(get_number_of_pdf_files "$BOXDIR")
+
+    # overfull box found
+    if (( FNUM > FMAX )) ; then
+
+      # get first pdf file from this directory
+      get_first_pdf_file "$BOXDIR"
+
+      # exit loop
+      break
+
+    fi
+
+  done < <(get_box_directories | tac | tail -n "+2")
+
+  # signalize success
+  return 0
+}
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+# no parameters given
+(( $# < 1 )) && exit 1
+
+# save first parameter
+OPERATION="$1"
+
+# drop first parameter
+shift
+
+# choose related function
+case "$OPERATION" in
+
+  "help")                    help                         ; exit $? ;;
+  "failmsg")                 failmsg                 "$*" ; exit $? ;;
+  "warnmsg")                 warnmsg                 "$*" ; exit $? ;;
+  "infomsg")                 infomsg                 "$*" ; exit $? ;;
+  "donemsg")                 donemsg                 "$*" ; exit $? ;;
+  "get_first_box")           get_first_box                ; exit $? ;;
+  "get_last_box")            get_last_box                 ; exit $? ;;
+  "check")                   check                        ; exit $? ;;
+  "get_active_flashcard")    get_active_flashcard         ; exit $? ;;
+  "set_active_flashcard")    set_active_flashcard    "$@" ; exit $? ;;
+  "get_box_directories")     get_box_directories          ; exit $? ;;
+  "get_box_size")            get_box_size            "$@" ; exit $? ;;
+  "get_pdf_files")           get_pdf_files           "$@" ; exit $? ;;
+  "get_first_pdf_file")      get_first_pdf_file      "$@" ; exit $? ;;
+  "get_number_of_pdf_files") get_number_of_pdf_files "$@" ; exit $? ;;
+  "get_next_number")         get_next_number         "$@" ; exit $? ;;
+  "get_highest_jamming")     get_highest_jamming          ; exit $? ;;
+
+  # unknown operation
+  *) failmsg "unknown operation: \"$OPERATION\"" ;;
+
+esac
+
+# signalize trouble
+exit 1
+
