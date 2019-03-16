@@ -29,154 +29,19 @@ readonly MAGENTA=$(tput setaf 5)
 readonly    CYAN=$(tput setaf 6)
 readonly   WHITE=$(tput setaf 7)
 
-# set name of the file that holds the path of the current fashcard
-readonly CFCFILE=".flaca.cfc"
-
-# set fix box names
-readonly FIRSTBOX="box000"
-readonly LASTBOX="boxEND"
-
-# ------------------------------------------------------------------------------
-# functions                                                            functions
-# ------------------------------------------------------------------------------
-
-# -------
-# failmsg
-# -------
-#
-# This function prints a red colored message via stderr.
-#
-function failmsg()
-{
-  # push to stderr
-  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
-}
-
-# -------
-# warnmsg
-# -------
-#
-# This function prints a yellow colored message via stderr.
-#
-function warnmsg()
-{
-  # push to stderr
-  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
-}
-
-# -------
-# infomsg
-# -------
-#
-# This function prints a blue colored message via stderr.
-#
-function infomsg()
-{
-  # push to stderr
-  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
-}
-
-# -------
-# donemsg
-# -------
-#
-# This function prints a green colored message via stderr.
-#
-function donemsg()
-{
-  # push to stderr
-  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
-}
-
-# -------------------
-# get_box_directories
-# -------------------
-#
-# This function pushes all box directories to stdout,
-# that are located in PWD. The names are sorted alphabetically.
-#
-function get_box_directories()
-{
-  find "$PWD"                      \
-       -maxdepth  "1"              \
-       -type      "d"              \
-       -regextype "posix-extended" \
-       -regex     ".+/box[^/]{3}$" \
-       -printf    "%P\n"           \
-  | sort
-}
-
-# ------------
-# get_box_size
-# ------------
-#
-# This function pushes the number of pdf files to stdout,
-# that can be put into the given directory.
-#
-# $1  directory
-#
-function get_box_size()
-{
-  # regular expression that matches a box directory
-  local readonly XPBOX="box[[:digit:]]{3}"
-
-  # crop box directory and size
-  echo "$1"                            \
-  | sed -re "s|.*/($XPBOX)/[^/]*$|\1|" \
-  | sed -re "s|.*/($XPBOX)$|\1|"       \
-  | sed -re "s|^($XPBOX)/[^/]*$|\1|"   \
-  | sed -nre "s/^box0*([[:digit:]]+)$/\1/p"
-}
-
-# -----------------------
-# get_number_of_pdf_files
-# -----------------------
-#
-# This function pushes the number of pdf files to stdout,
-# that are located in the given directory.
-#
-# $1  directory
-#
-function get_number_of_pdf_files()
-{
-  # get number of pdf files in this directory
-  find "$1"                           \
-       -maxdepth  "1"                 \
-       -type      "f"                 \
-       -regextype "posix-extended"    \
-       -regex     ".+\.[Pp][Dd][Ff]$" \
-       -printf    "."                 \
-  | wc -c
-}
-
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
-# check permission to write
-if [ ! -w "$PWD" ] ; then
+# run some initial checks
+if ! flaca.common check ; then
 
-  # notify user
-  warnmsg "no permission to write here: \"$PWD\""
-
-fi
-
-# check if first box is missing
-if [ ! -d "$FIRSTBOX" ] ; then
-
-  # notify user
-  warnmsg "unable to locate directory: \"$FIRSTBOX\""
+  # signalize trouble
+  exit 1
 
 fi
 
-# check if last box is missing
-if [ ! -d "$LASTBOX" ] ; then
-
-  # notify user
-  warnmsg "unable to locate directory: \"$LASTBOX\""
-
-fi
-
+# start with separating line
 echo
 
 # total number of flashcards
@@ -187,10 +52,10 @@ while read -r BOXDIR
 do
 
   # get size of this box
-  FMAX=$(get_box_size "$BOXDIR")
+  FMAX=$(flaca.common get_box_size "$BOXDIR")
 
   # get number of flashcards in this box
-  FNUM=$(get_number_of_pdf_files "$BOXDIR")
+  FNUM=$(flaca.common get_number_of_pdf_files "$BOXDIR")
 
   if (( FNUM > FMAX )) ; then
 
@@ -207,24 +72,43 @@ do
   # update total number
   (( TOTAL += FNUM ))
 
-done < <(get_box_directories)
+done < <(flaca.common get_box_directories)
 
 # show total number of flashcards
 printf "  %s%-6s: %5d%s\n" "$CYAN" "total" "$TOTAL" "$NONE"
 
-echo
+# get active flashcard
+ACTIVE=$(flaca.common get_active_flashcard)
 
-# check if a flashcard is still active
-if [ -s "$CFCFILE" ] ; then
+# get next flashcard
+NEXT=$(flaca.common get_highest_jamming)
 
-  # get path from 'current-flashcard' file
-  FLASHCARD=$(sed -nre "/^[[:space:]]*$/ { d } ; p ; q" "$CFCFILE")
+# check if at least one flashcard has been found
+if [ -n "$ACTIVE$NEXT" ] ; then
 
-  # show active flashcard
-  echo "  active flashcard: $FLASHCARD"
+  # insert separating line
   echo
 
 fi
+
+# check if there is an active flashcard
+if [ -n "$ACTIVE" ] ; then
+
+  # show active flashcard
+  echo "  active flashcard: $ACTIVE"
+
+fi
+
+# check if there is a next flashcard
+if [ -n "$NEXT" ] ; then
+
+  # show next flashcard
+  echo "  coming flashcard: $NEXT"
+
+fi
+
+# end with separating line
+echo
 
 # signalize success
 exit 0
