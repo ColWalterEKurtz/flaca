@@ -270,11 +270,11 @@ do
     "v") OPMODE="SHOW_VERSION"
          ;;
 
-    "?") failmsg "unknown option: -$OPTARG"
+    "?") flaca.common failmsg "unknown option: -$OPTARG"
          exit 1
          ;;
 
-    ":") failmsg "missing argument: -$OPTARG <argument>"
+    ":") flaca.common failmsg "missing argument: -$OPTARG <argument>"
          exit 1
          ;;
 
