@@ -175,7 +175,7 @@ function partial_reset()
       if [ -z "$NEWNUM" ] ; then
 
         # notify user
-        failmsg "unable to resolve next available counter: \"$PREVBOX\""
+        flaca.common failmsg "unable to resolve next available counter: \"$PREVBOX\""
 
         # signalize trouble
         return 1
