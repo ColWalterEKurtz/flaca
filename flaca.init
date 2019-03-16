@@ -19,71 +19,9 @@ export LANG="en_US.UTF-8"
 # use dot as decimal separator
 export LC_NUMERIC="en_US.UTF-8"
 
-# terminal colors
-readonly    NONE=$(tput sgr0)
-readonly     RED=$(tput setaf 1)
-readonly   GREEN=$(tput setaf 2)
-readonly  YELLOW=$(tput setaf 3)
-readonly    BLUE=$(tput setaf 4)
-readonly MAGENTA=$(tput setaf 5)
-readonly    CYAN=$(tput setaf 6)
-readonly   WHITE=$(tput setaf 7)
-
-# set fix box names
-readonly FIRSTBOX="box000"
-readonly LASTBOX="boxEND"
-
 # ------------------------------------------------------------------------------
 # functions                                                            functions
 # ------------------------------------------------------------------------------
-
-# -------
-# failmsg
-# -------
-#
-# This function prints a red colored message via stderr.
-#
-function failmsg()
-{
-  # push to stderr
-  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
-}
-
-# -------
-# warnmsg
-# -------
-#
-# This function prints a yellow colored message via stderr.
-#
-function warnmsg()
-{
-  # push to stderr
-  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
-}
-
-# -------
-# infomsg
-# -------
-#
-# This function prints a blue colored message via stderr.
-#
-function infomsg()
-{
-  # push to stderr
-  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
-}
-
-# -------
-# donemsg
-# -------
-#
-# This function prints a green colored message via stderr.
-#
-function donemsg()
-{
-  # push to stderr
-  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
-}
 
 # ----------------
 # create_directory
@@ -97,7 +35,7 @@ function create_directory()
   if [ -d "$1" ] ; then
 
     # notify user
-    donemsg "directory already present: $1"
+    flaca.common donemsg "directory already present: $1"
 
   else
 
@@ -108,7 +46,7 @@ function create_directory()
     if [ ! -d "$1" ] ; then
 
       # notify user
-      failmsg "unable to create directory: \"$1\""
+      flaca.common failmsg "unable to create directory: \"$1\""
 
       # signalize trouble
       return 1
@@ -116,7 +54,7 @@ function create_directory()
     fi
 
     # notify user
-    donemsg "directory created: $1"
+    flaca.common donemsg "directory created: $1"
 
   fi
 
@@ -132,30 +70,79 @@ function create_directory()
 if [ ! -w "$PWD" ] ; then
 
   # notify user
-  failmsg "no permission to write here: \"$PWD\""
+  flaca.common failmsg "no permission to write here: \"$PWD\""
 
   # signalize trouble
   exit 1
 
 fi
 
-# create these default directories
-for DIR in "$FIRSTBOX" \
-           box005      \
-           box010      \
-           box015      \
-           box020      \
-           box030      \
-           box050      \
-           box080      \
-           box120      \
-           box150      \
-           "$LASTBOX"
-do
+# check if exactly one parameter is given
+if (( $# == 1 )) ; then
 
-  create_directory "$DIR"
+  if [ "$1" == "-p" ] ; then
 
-done
+    # use prime numbers
+    for DIR in "$(flaca.common get_first_box)" \
+               "box002"                        \
+               "box003"                        \
+               "box005"                        \
+               "box007"                        \
+               "box011"                        \
+               "box013"                        \
+               "box017"                        \
+               "box019"                        \
+               "box023"                        \
+               "$(flaca.common get_last_box)"
+    do
+
+      # try to create directory
+      if ! create_directory "$DIR" ; then
+
+        # signalize trouble
+        exit 1
+
+      fi
+
+    done
+
+  else
+
+    # notify user
+    flaca.common failmsg "unknown option: \"$1\""
+
+    # signalize trouble
+    exit 1
+
+  fi
+
+else
+
+  # create these default directories
+  for DIR in "$(flaca.common get_first_box)" \
+             "box005"                        \
+             "box010"                        \
+             "box015"                        \
+             "box020"                        \
+             "box030"                        \
+             "box050"                        \
+             "box080"                        \
+             "box120"                        \
+             "box150"                        \
+             "$(flaca.common get_last_box)"
+  do
+
+    # try to create directory
+    if ! create_directory "$DIR" ; then
+
+      # signalize trouble
+      exit 1
+
+    fi
+
+  done
+
+fi
 
 # signalize success
 exit 0
