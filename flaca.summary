@@ -51,21 +51,31 @@ TOTAL=0
 while read -r BOXDIR
 do
 
-  # get size of this box
-  FMAX=$(flaca.common get_box_size "$BOXDIR")
-
   # get number of flashcards in this box
   FNUM=$(flaca.common get_number_of_pdf_files "$BOXDIR")
 
-  if (( FNUM > FMAX )) ; then
-
-    # show number of flashcards in this box directory
-    printf "  %s: %5d %s%s%s\n" "$BOXDIR" "$FNUM" "$YELLOW" "+" "$NONE"
-
-  else
+  # check if LASTBOX is reached
+  if [ "$BOXDIR" == "$(flaca.common get_last_box)" ] ; then
 
     # show number of flashcards in this box directory
     printf "  %s: %5d\n" "$BOXDIR" "$FNUM"
+
+  else
+
+    # get size of this box
+    FMAX=$(flaca.common get_box_size "$BOXDIR")
+
+    if (( FNUM > FMAX )) ; then
+
+      # show number of flashcards in this box directory
+      printf "  %s: %5d %s%s%s\n" "$BOXDIR" "$FNUM" "$YELLOW" "+" "$NONE"
+
+    else
+
+      # show number of flashcards in this box directory
+      printf "  %s: %5d\n" "$BOXDIR" "$FNUM"
+
+    fi
 
   fi
 
