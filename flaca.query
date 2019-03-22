@@ -19,17 +19,88 @@ export LANG="en_US.UTF-8"
 # use dot as decimal separator
 export LC_NUMERIC="en_US.UTF-8"
 
+# horizontal tabulator
+readonly TAB="	"
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------------
+# get_pdf_files
+# -------------
+#
+# This function pushes all pdf files to stdout, that are
+# located in PWD. The names are sorted alphabetically.
+#
+function get_pdf_files()
+{
+  find "$PWD"                         \
+       -maxdepth  "1"                 \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+       -printf    "%P\n"              \
+  | sort
+}
+
+# ------------------
+# get_next_flashcard
+# ------------------
+#
+#
+#
+function get_next_flashcard()
+{
+  # get current timestamp
+  local NOW=$(date --utc "+%s")
+
+  # sed abbreviations
+  local readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
+  local readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
+
+  # get pdf files with leading timestamps
+  while read -r FILENAME QTIME HTIME
+  do
+
+    # skip new files first
+    [ "$QTIME" == "000000000000" ] && continue
+
+    # remove leading zeros
+    local QTIME_NUMERIC=$(sed -re "s/0*([[:digit:]]+)/\1/" <<< "$QTIME")
+
+    # query time is in the future
+    (( QTIME_NUMERIC > NOW )) && break
+
+    # push filename to stdout
+    echo "$FILENAME"
+
+    # signalize success
+    return 0
+
+  done < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p")
+
+  # get pdf files with leading timestamps
+  read -r FILENAME QTIME HTIME < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p" | head -n 1)
+
+  # new file found
+  if [ "$QTIME" == "000000000000" ] ; then
+
+    # push filename to stdout
+    echo "$FILENAME"
+
+    # signalize success
+    return 0
+
+  fi
+
+  # no file found
+  return 1
+}
+
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
-
-# run some initial checks
-if ! flaca.common check ; then
-
-  # signalize trouble
-  exit 1
-
-fi
 
 # check if there is still an active flashcard
 ACTIVE=$(flaca.common get_active_flashcard)
@@ -38,7 +109,7 @@ ACTIVE=$(flaca.common get_active_flashcard)
 if [ ! -f "$ACTIVE" ] ; then
 
   # try to get highest jamming flashcard
-  ACTIVE=$(flaca.common get_highest_jamming)
+  ACTIVE=$(get_next_flashcard)
 
   # update active flashcard
   flaca.common set_active_flashcard "$ACTIVE"
@@ -47,7 +118,7 @@ if [ ! -f "$ACTIVE" ] ; then
   if [ -z "$ACTIVE" ] ; then
 
     # notify user
-    flaca.common donemsg "no jamming flashcards found (add new flashcards or try flaca.reset)"
+    flaca.common donemsg "all flashcards seem to be learned"
 
     # stop here
     exit 1

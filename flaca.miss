@@ -23,14 +23,6 @@ export LC_NUMERIC="en_US.UTF-8"
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
-# run some initial checks
-if ! flaca.common check ; then
-
-  # signalize trouble
-  exit 1
-
-fi
-
 # get active flashcard
 ACTIVE=$(flaca.common get_active_flashcard)
 
@@ -56,61 +48,17 @@ if [ ! -f "$ACTIVE" ] ; then
 
 fi
 
-# get fix part of the filename
-FIXPART=$(flaca.common get_fix_part "$ACTIVE")
+# sed abbreviations
+readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
+readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
 
-# check fix part
-if [ -z "$FIXPART" ] ; then
+# split flashcard path
+read -r FILENAME QTIME HTIME < <(sed -nre "s/$SEDREG/$SEDOUT/p" <<< "$ACTIVE")
 
-  # notify user
-  flaca.common failmsg "unable to resolve fix part of the filename: \"$ACTIVE\""
+# get current timestamp
+NOW=$(date --utc "+%s")
 
-  # signalize trouble
-  exit 1
 
-fi
-
-# get current box
-NOWBOX=$(flaca.common get_box "$ACTIVE")
-
-# check box
-if [ -z "$NOWBOX" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve current box: \"$ACTIVE\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# get name of the first box directory
-FIRST=$(flaca.common get_first_box)
-
-# get next (second) box
-NEWBOX=$(flaca.common get_next_box "$FIRST")
-
-# check box
-if [ -z "$NEWBOX" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve next box: \"$FIRST\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# get name of the last box directory
-LAST=$(flaca.common get_last_box)
-
-# only two boxes present
-if [ "$NEWBOX" == "$LAST" ] ; then
-
-  # move flashcard to first box
-  NEWBOX="$FIRST"
-
-fi
 
 # get next counter
 NEWNUM=$(flaca.common get_next_number "$NEWBOX")
