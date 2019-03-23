@@ -19,6 +19,9 @@ export LANG="en_US.UTF-8"
 # use dot as decimal separator
 export LC_NUMERIC="en_US.UTF-8"
 
+# horizontal tabulator
+readonly TAB="	"
+
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
@@ -50,34 +53,24 @@ fi
 
 # sed abbreviations
 readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
-readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
+readonly SEDOUT="\1$TAB\2$TAB\3"
 
 # split flashcard path
-read -r FILENAME QTIME HTIME < <(sed -nre "s/$SEDREG/$SEDOUT/p" <<< "$ACTIVE")
+read -r QUERYTIME TOUCHTIME FIXPART < <(sed -nre "s/$SEDREG/$SEDOUT/p" <<< "$ACTIVE")
 
 # get current timestamp
 NOW=$(date --utc "+%s")
 
+# set flashcard 'learned' up to NOW + 60 seconds
+QUERYTIME=$(bc <<< "$NOW + 60")
 
+# set current timestamp
+TOUCHTIME="$NOW"
 
-# get next counter
-NEWNUM=$(flaca.common get_next_number "$NEWBOX")
+# set new filename
+TARGETPATH=$(printf "%012d-%012d-%s" "$QUERYTIME" "$TOUCHTIME" "$FIXPART")
 
-# check counter
-if [ -z "$NEWNUM" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve next counter: \"$NEWBOX\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# create target path
-TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
-
-# just to make sure
+# check if target path already exists
 if [ -f "$TARGETPATH" ] ; then
 
   # notify user
@@ -88,7 +81,7 @@ if [ -f "$TARGETPATH" ] ; then
 
 fi
 
-# move flashcard to next box
+# update timestamps
 mv -f "$ACTIVE" "$TARGETPATH" &>"/dev/null"
 
 # check operation
@@ -97,8 +90,11 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
   # clear active flashcard
   flaca.common set_active_flashcard ""
 
+  # calculate time difference in seconds
+  DELTA=$(bc <<< "$QUERYTIME - $NOW")
+
   # show progress
-  flaca.common donemsg "$FIXPART: $NEWBOX <-- $NOWBOX"
+  flaca.common donemsg "$FIXPART: +$DELTA = $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
 
 else
 

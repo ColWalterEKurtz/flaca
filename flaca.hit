@@ -19,17 +19,12 @@ export LANG="en_US.UTF-8"
 # use dot as decimal separator
 export LC_NUMERIC="en_US.UTF-8"
 
+# horizontal tabulator
+readonly TAB="	"
+
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
-
-# run some initial checks
-if ! flaca.common check ; then
-
-  # signalize trouble
-  exit 1
-
-fi
 
 # get active flashcard
 ACTIVE=$(flaca.common get_active_flashcard)
@@ -56,66 +51,36 @@ if [ ! -f "$ACTIVE" ] ; then
 
 fi
 
-# get fix part of the filename
-FIXPART=$(flaca.common get_fix_part "$ACTIVE")
+# sed abbreviations
+readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
+readonly SEDOUT="\1$TAB\2$TAB\3"
 
-# check fix part
-if [ -z "$FIXPART" ] ; then
+# split flashcard path
+read -r QUERYTIME TOUCHTIME FIXPART < <(sed -nre "s/$SEDREG/$SEDOUT/p" <<< "$ACTIVE")
 
-  # notify user
-  flaca.common failmsg "unable to resolve fix part of the filename: \"$ACTIVE\""
+# get current timestamp
+NOW=$(date --utc "+%s")
 
-  # signalize trouble
-  exit 1
+# at least one initial timestamp found
+if [ "$QUERYTIME" == "000000000000" ] || [ "$TOUCHTIME" == "000000000000" ] ; then
 
-fi
+  # set flashcard 'learned' up to NOW + 60 seconds
+  QUERYTIME=$(bc <<< "$NOW + 60")
 
-# get current box
-NOWBOX=$(flaca.common get_box "$ACTIVE")
+else
 
-# check box
-if [ -z "$NOWBOX" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve current box: \"$ACTIVE\""
-
-  # signalize trouble
-  exit 1
+  # set flashcard 'learned' up to NOW + (NOW - TOUCHTIME) * 1.25
+  QUERYTIME=$(sed -nre "s/^0*([[:digit:]]+)/\1/ ; s|.+|scale=0; ($NOW + ($NOW - &) * 1.25 + 0.5) / 1|p" <<< "$TOUCHTIME" | bc)
 
 fi
 
-# get next box
-NEWBOX=$(flaca.common get_next_box "$NOWBOX")
+# set current timestamp
+TOUCHTIME="$NOW"
 
-# check box
-if [ -z "$NEWBOX" ] ; then
+# set new filename
+TARGETPATH=$(printf "%012d-%012d-%s" "$QUERYTIME" "$TOUCHTIME" "$FIXPART")
 
-  # notify user
-  flaca.common failmsg "unable to resolve next box: \"$NOWBOX\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# get next counter
-NEWNUM=$(flaca.common get_next_number "$NEWBOX")
-
-# check counter
-if [ -z "$NEWNUM" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve next counter: \"$NEWBOX\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
-# create target path
-TARGETPATH=$(printf "%s/%06d-%s" "$NEWBOX" "$NEWNUM" "$FIXPART")
-
-# just to make sure
+# check if target path already exists
 if [ -f "$TARGETPATH" ] ; then
 
   # notify user
@@ -126,7 +91,7 @@ if [ -f "$TARGETPATH" ] ; then
 
 fi
 
-# move flashcard to next box
+# update timestamps
 mv -f "$ACTIVE" "$TARGETPATH" &>"/dev/null"
 
 # check operation
@@ -135,8 +100,11 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
   # clear active flashcard
   flaca.common set_active_flashcard ""
 
+  # calculate time difference in seconds
+  DELTA=$(bc <<< "$QUERYTIME - $NOW")
+
   # show progress
-  flaca.common donemsg "$FIXPART: $NOWBOX --> $NEWBOX"
+  flaca.common donemsg "$FIXPART: +$DELTA = $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
 
 else
 
