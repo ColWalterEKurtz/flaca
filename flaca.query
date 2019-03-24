@@ -52,14 +52,17 @@ function get_pdf_files()
 #
 function get_next_flashcard()
 {
-  # get current timestamp
-  local NOW=$(date --utc "+%s")
-
   # sed abbreviations
   local readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
   local readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
 
-  # get pdf files with leading timestamps
+  # get current timestamp
+  local readonly NOW=$(date --utc "+%s")
+
+  # initialize path of newest expired flashcard
+  local NEWESTEXPIRED=""
+
+  # try to find newest expired flashcard
   while read -r FILENAME QTIME HTIME
   do
 
@@ -69,21 +72,29 @@ function get_next_flashcard()
     # remove leading zeros
     local QTIME_NUMERIC=$(sed -re "s/0*([[:digit:]]+)/\1/" <<< "$QTIME")
 
-    # query time is in the future
+    # first future flashcard found
     (( QTIME_NUMERIC > NOW )) && break
 
-    # push filename to stdout
-    echo "$FILENAME"
+    # update newest expired flashcard
+    local NEWESTEXPIRED="$FILENAME"
+
+  done < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p")
+
+  # check if newest expired flashcard has been found
+  if [ -n "$NEWESTEXPIRED" ] ; then
+
+    # push path to stdout
+    echo "$NEWESTEXPIRED"
 
     # signalize success
     return 0
 
-  done < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p")
+  fi
 
-  # get pdf files with leading timestamps
+  # try to find first totally new flashcard
   read -r FILENAME QTIME HTIME < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p" | head -n 1)
 
-  # new file found
+  # check if totally new flashcard has been found
   if [ "$QTIME" == "000000000000" ] ; then
 
     # push filename to stdout
