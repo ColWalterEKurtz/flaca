@@ -23,6 +23,46 @@ export LC_NUMERIC="en_US.UTF-8"
 readonly TAB="	"
 
 # ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# ----------------------
+# show_second_difference
+# ----------------------
+#
+# $1  from time (seconds)
+# $2  to   time (seconds)
+#
+function show_second_difference()
+{
+  # set internal names
+  local readonly FROMTIME="$1"
+  local readonly TOTIME="$2"
+
+  {
+    echo "scale = 0"
+    echo "if ($TOTIME < $FROMTIME) { -1 ; r = $FROMTIME - $TOTIME } else { 1 ; r = $TOTIME - $FROMTIME }"
+    echo "d = r / 86400"
+    echo "r = r % 86400"
+    echo "h = r / 3600"
+    echo "r = r % 3600"
+    echo "m = r / 60"
+    echo "s = r % 60"
+    echo "d ; h ; m ; s"
+  }                       \
+  | bc                    \
+  | sed --quiet           \
+        --regexp-extended \
+        --expression="
+          1{ s/^-1$/-/ ; s/^1$/+/ ; h ; b }
+          2{ s/$/d/ ; H ; b }
+          3{ s/$/h/ ; H ; b }
+          4{ s/$/m/ ; H ; b }
+          5{ s/$/s/ ; H ; g ; s/\x0A+/ /g ; s/^ // ; s/ $// ; /.+/p ; q }
+        "
+}
+
+# ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
@@ -100,11 +140,11 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
   # clear active flashcard
   flaca.common set_active_flashcard ""
 
-  # calculate time difference in seconds
-  DELTA=$(bc <<< "$QUERYTIME - $NOW")
+  # calculate readable time difference
+  DELTA=$(show_second_difference "$NOW" "$QUERYTIME")
 
   # show progress
-  flaca.common donemsg "$FIXPART: +$DELTA  -->  $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
+  flaca.common donemsg "$FIXPART: $DELTA"
 
 else
 
