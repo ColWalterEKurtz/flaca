@@ -64,8 +64,8 @@ NOW=$(date --utc "+%s")
 # at least one initial timestamp found
 if [ "$QUERYTIME" == "000000000000" ] || [ "$TOUCHTIME" == "000000000000" ] ; then
 
-  # set flashcard 'learned' up to NOW + 60 seconds
-  QUERYTIME=$(bc <<< "$NOW + 60")
+  # set flashcard 'learned' up to NOW + 90 seconds
+  QUERYTIME=$(bc <<< "$NOW + 90")
 
 else
 
@@ -104,7 +104,7 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
   DELTA=$(bc <<< "$QUERYTIME - $NOW")
 
   # show progress
-  flaca.common donemsg "$FIXPART: +$DELTA = $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
+  flaca.common donemsg "$FIXPART: +$DELTA  -->  $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
 
 else
 

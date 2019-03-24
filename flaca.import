@@ -23,12 +23,43 @@ export LC_NUMERIC="en_US.UTF-8"
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
+# set default values
+OPMODE="RESET"
+REMOTE=""
+
 # check number of passed parameters
-if (( $# != 1 )) ; then
+if (( $# == 2 )) ; then
+
+  if [ "$1" == "-k" ] ; then
+
+    # keep timestamps
+    OPMODE="KEEP"
+
+    # set remote directory
+    REMOTE="$2"
+
+  else
+
+    # notify user
+    flaca.common failmsg "unknown option: \"$1\""
+
+    # signalize trouble
+    exit 1
+
+  fi
+
+# check number of passed parameters
+elif (( $# == 1 )) ; then
+
+  # set remote directory
+  REMOTE="$1"
+
+# invalid command line
+else
 
   # show syntax
   echo
-  echo "$(basename "$0") <source dir>"
+  echo "$(basename "$0") [-k] <source dir>"
   echo
 
   # signalize trouble
@@ -36,8 +67,11 @@ if (( $# != 1 )) ; then
 
 fi
 
-# run some initial checks
-if ! flaca.common check ; then
+# check remote directory
+if [ -z "$REMOTE" ] || [ ! -d "$REMOTE" ] ; then
+
+  # notify user
+  flaca.common failmsg "unable to locate source directory: \"$REMOTE\""
 
   # signalize trouble
   exit 1
@@ -70,7 +104,7 @@ done | sort > "$TMPLOCAL"
 flaca.common infomsg "searching remote pdf files"
 
 # find remote pdf files
-find "$1"                           \
+find "$REMOTE"                      \
      -type      "f"                 \
      -regextype "posix-extended"    \
      -regex     ".+\.[Pp][Dd][Ff]$" \
@@ -85,20 +119,6 @@ done | sort > "$TMPREMOTE"
 # show progress
 flaca.common infomsg "searching missing pdf files"
 
-# get counter once
-NEWNUM=$(flaca.common get_next_number "$(flaca.common get_first_box)")
-
-# check counter
-if [ -z "$NEWNUM" ] ; then
-
-  # notify user
-  flaca.common failmsg "unable to resolve next available counter: \"$(flaca.common get_first_box)\""
-
-  # signalize trouble
-  exit 1
-
-fi
-
 # find hash values that are unique to file 2 (remote pdf files)
 comm -13 <(sed -re "s/ .+//" "$TMPLOCAL")  \
          <(sed -re "s/ .+//" "$TMPREMOTE") \
@@ -108,14 +128,18 @@ do
   # get related source file
   SRCFILE=$(sed -nre "s/^$HASHKEY[[:space:]]+([^[:space:]].+)/\1/p" "$TMPREMOTE")
 
-  # remove leading counter
-  FIXPART=$(flaca.common get_fix_part "$SRCFILE")
+  # check operation mode
+  if [ "$OPMODE" == "RESET" ] ; then
 
-  # create target path
-  TARGETPATH=$(printf "%s/%06d-%s" "$(flaca.common get_first_box)" "$NEWNUM" "$FIXPART")
+    # reset timestamps
+    TARGETPATH=$(basename "$SRCFILE" | sed -re "s/^[[:digit:]]{12}-[[:digit:]]{12}-(.+)/\1/ ; s/.+/000000000000-000000000000-&/")
 
-  # always step counter
-  (( NEWNUM += 1 ))
+  else
+
+    # keep timestamps
+    TARGETPATH=$(basename "$SRCFILE" | sed -re "/^[[:digit:]]{12}-[[:digit:]]{12}-.+/{ b } ; s/.+/000000000000-000000000000-&/")
+
+  fi
 
   # check if file already exists
   if [ -f "$TARGETPATH" ] ; then

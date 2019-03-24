@@ -94,7 +94,7 @@ if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
   DELTA=$(bc <<< "$QUERYTIME - $NOW")
 
   # show progress
-  flaca.common donemsg "$FIXPART: +$DELTA = $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
+  flaca.common donemsg "$FIXPART: +$DELTA  -->  $(date --utc -d "@$QUERYTIME" "+%Y-%m-%d %H:%M:%S UTC")"
 
 else
 
