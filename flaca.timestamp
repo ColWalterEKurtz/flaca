@@ -102,12 +102,41 @@ function get_pdf_files()
   | sort
 }
 
+# ----------------------
+# show_second_difference
+# ----------------------
+#
+# $1  from time (seconds)
+# $2  to   time (seconds)
+#
+function show_second_difference()
+{
+  # set internal names
+  local readonly FROMTIME="$1"
+  local readonly TOTIME="$2"
+
+  {
+    echo "scale = 0"
+    echo "if ($TOTIME < $FROMTIME) { -1 ; r = $FROMTIME - $TOTIME } else { 1 ; r = $TOTIME - $FROMTIME }"
+    echo "d = r / 86400"
+    echo "r = r % 86400"
+    echo "h = r / 3600"
+    echo "r = r % 3600"
+    echo "m = r / 60"
+    echo "s = r % 60"
+    echo "d ; h ; m ; s"
+  }                                    \
+  | bc                                 \
+  | sed -re "1{ s/-1/-/ ; s/1/+/ ; b}" \
+  | xargs printf "%s %4dd %2dh %2dm %2ds\n"
+}
+
 # ------------------------------------------------------------------------------
 # options                                                                options
 # ------------------------------------------------------------------------------
 
 # set default values
-OPMODE="ADD"
+OPMODE="SHOW"
 
 # set options to accept
 readonly KNOWN_OPTIONS=":hvar"
@@ -156,8 +185,30 @@ shift $(( OPTIND - 1 ))
 # commands                                                              commands
 # ------------------------------------------------------------------------------
 
+# show duration to next query
+if [ "$OPMODE" == "SHOW" ] ; then
+
+  # sed abbreviations
+  readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
+  readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
+
+  # get current timestamp
+  readonly NOW=$(date --utc "+%s")
+
+  # find flashcards with real timestamps
+  while read -r FILENAME QTIME HTIME
+  do
+
+    # skip new files first
+    [ "$QTIME" == "000000000000" ] && continue
+
+    # show time gap
+    printf "%16s  %s\n" "$(show_second_difference "$NOW" "$QTIME")" "$FILENAME"
+
+  done < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p")
+
 # add initial timestamps
-if [ "$OPMODE" == "ADD" ] ; then
+elif [ "$OPMODE" == "ADD" ] ; then
 
   # get pdf files without timestamp
   get_pdf_files                                     \
