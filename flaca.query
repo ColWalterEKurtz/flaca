@@ -109,9 +109,52 @@ function get_next_flashcard()
   return 1
 }
 
+# -------------------
+# get_next_flashcard2
+# -------------------
+#
+#
+#
+function get_next_flashcard2()
+{
+  # sed abbreviations
+  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
+  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
+
+  # get current timestamp
+  local readonly NOW=$(date --utc "+%s")
+
+  # try to find expired flashcard
+  while read -r FILENAME QTIME HTIME
+  do
+
+    # skip future flashcards
+    (( QTIME > NOW )) && continue
+
+    local LTIME=$(bc <<< "$QTIME - $HTIME")
+
+    echo "$FILENAME"
+    echo "$QTIME"
+    echo "$HTIME"
+    echo "$LTIME"
+    echo
+
+  done < <(find "$PWD"                                                               \
+                -maxdepth  "1"                                                       \
+                -type      "f"                                                       \
+                -regextype "posix-extended"                                          \
+                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"                                                    \
+           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p")
+}
+
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
+
+get_next_flashcard2
+
+exit 1
 
 # check if there is still an active flashcard
 ACTIVE=$(flaca.common get_active_flashcard)
