@@ -26,24 +26,6 @@ readonly TAB="	"
 # functions                                                            functions
 # ------------------------------------------------------------------------------
 
-# -------------
-# get_pdf_files
-# -------------
-#
-# This function pushes all pdf files to stdout, that are
-# located in PWD. The names are sorted alphabetically.
-#
-function get_pdf_files()
-{
-  find "$PWD"                         \
-       -maxdepth  "1"                 \
-       -type      "f"                 \
-       -regextype "posix-extended"    \
-       -regex     ".+\.[Pp][Dd][Ff]$" \
-       -printf    "%P\n"              \
-  | sort
-}
-
 # ------------------
 # get_next_flashcard
 # ------------------
@@ -53,38 +35,69 @@ function get_pdf_files()
 function get_next_flashcard()
 {
   # sed abbreviations
-  local readonly SEDREG="^([[:digit:]]{12})-([[:digit:]]{12})-(.+)$"
-  local readonly SEDOUT="\1-\2-\3$TAB\1$TAB\2"
+  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
+  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
 
   # get current timestamp
-  local readonly NOW=$(date --utc "+%s")
+  local -i readonly NOW=$(date --utc "+%s")
 
+  # initialize time values ('learn' and 'hit')
+  local -i MINLTIME="999999999999"
+  local -i MINHTIME="999999999999"
+  
   # initialize path of newest expired flashcard
-  local NEWESTEXPIRED=""
+  local NEXTCARD=""
 
-  # try to find newest expired flashcard
+  # try to find expired flashcard with the smallest 'learn time' value
   while read -r FILENAME QTIME HTIME
   do
 
-    # skip new files first
-    [ "$QTIME" == "000000000000" ] && continue
+    # skip future flashcards
+    (( QTIME > NOW )) && continue
 
-    # remove leading zeros
-    local QTIME_NUMERIC=$(sed -re "s/0*([[:digit:]]+)/\1/" <<< "$QTIME")
+    # calculate 'learn time'
+    local -i LTIME=$(bc <<< "$QTIME - $HTIME")
 
-    # first future flashcard found
-    (( QTIME_NUMERIC > NOW )) && break
+    # find minumum LTIME
+    if (( LTIME < MINLTIME )) ; then
 
-    # update newest expired flashcard
-    local NEWESTEXPIRED="$FILENAME"
+      # update path
+      local NEXTCARD="$FILENAME"
 
-  done < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p")
+      # update time values
+      local -i MINLTIME="$LTIME"
+      local -i MINHTIME="$HTIME"
 
-  # check if newest expired flashcard has been found
-  if [ -n "$NEWESTEXPIRED" ] ; then
+    # very unlikely case of two equal LTIME values
+    elif (( LTIME == MINLTIME )) ; then
+
+      # use older flashcard
+      if (( HTIME < MINHTIME )) ; then
+
+        # update path
+        local NEXTCARD="$FILENAME"
+
+        # update time values
+        local -i MINLTIME="$LTIME"
+        local -i MINHTIME="$HTIME"
+
+      fi
+
+    fi
+
+  done < <(find "$PWD"                                                               \
+                -maxdepth  "1"                                                       \
+                -type      "f"                                                       \
+                -regextype "posix-extended"                                          \
+                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"                                                    \
+           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p")
+
+  # check if flashcard has been found
+  if [ -n "$NEXTCARD" ] ; then
 
     # push path to stdout
-    echo "$NEWESTEXPIRED"
+    echo "$NEXTCARD"
 
     # signalize success
     return 0
@@ -92,13 +105,20 @@ function get_next_flashcard()
   fi
 
   # try to find first totally new flashcard
-  read -r FILENAME QTIME HTIME < <(get_pdf_files | sed -nre "s/$SEDREG/$SEDOUT/p" | head -n 1)
+  local NEXTCARD=$(find "$PWD"                                                         \
+                        -maxdepth  "1"                                                 \
+                        -type      "f"                                                 \
+                        -regextype "posix-extended"                                    \
+                        -regex     ".+/000000000000-000000000000-[^/]+\.[Pp][Dd][Ff]$" \
+                        -printf    "%P\n"                                              \
+                   | sort                                                              \
+                   | head -n 1)
 
-  # check if totally new flashcard has been found
-  if [ "$QTIME" == "000000000000" ] ; then
+  # check if flashcard has been found
+  if [ -n "$NEXTCARD" ] ; then
 
-    # push filename to stdout
-    echo "$FILENAME"
+    # push path to stdout
+    echo "$NEXTCARD"
 
     # signalize success
     return 0
@@ -109,52 +129,9 @@ function get_next_flashcard()
   return 1
 }
 
-# -------------------
-# get_next_flashcard2
-# -------------------
-#
-#
-#
-function get_next_flashcard2()
-{
-  # sed abbreviations
-  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
-  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
-
-  # get current timestamp
-  local readonly NOW=$(date --utc "+%s")
-
-  # try to find expired flashcard
-  while read -r FILENAME QTIME HTIME
-  do
-
-    # skip future flashcards
-    (( QTIME > NOW )) && continue
-
-    local LTIME=$(bc <<< "$QTIME - $HTIME")
-
-    echo "$FILENAME"
-    echo "$QTIME"
-    echo "$HTIME"
-    echo "$LTIME"
-    echo
-
-  done < <(find "$PWD"                                                               \
-                -maxdepth  "1"                                                       \
-                -type      "f"                                                       \
-                -regextype "posix-extended"                                          \
-                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
-                -printf    "%P\n"                                                    \
-           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p")
-}
-
 # ------------------------------------------------------------------------------
 # commands                                                              commands
 # ------------------------------------------------------------------------------
-
-get_next_flashcard2
-
-exit 1
 
 # check if there is still an active flashcard
 ACTIVE=$(flaca.common get_active_flashcard)
@@ -182,7 +159,7 @@ if [ ! -f "$ACTIVE" ] ; then
 fi
 
 # show page 1 from ACTIVE flashcard
-xreader -i 1 "$ACTIVE" &
+xreader -i 1 "$ACTIVE" &>"/dev/null" &
 
 # signalize success
 exit 0
