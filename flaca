@@ -1,0 +1,1080 @@
+#!/bin/bash
+
+# ------------------------------------------------------------------------------
+# settings                                                              settings
+# ------------------------------------------------------------------------------
+set -o errtrace  # any trap on ERR is inherited by shell functions,
+                 #   command substitutions, and commands executed in a subshell
+                 #   environment
+set -o nounset   # treat unset variables and parameters other than the special
+                 #   parameters "@" and "*" as an error when performing
+                 #   parameter expansion
+set -o pipefail  # the return value of a pipeline is the value of the last
+                 #   (rightmost) command to exit with a non-zero status, or
+                 #   zero if all commands in the pipeline exit successfully
+
+# set language
+export LANG="en_US.UTF-8"
+
+# use dot as decimal separator
+export LC_NUMERIC="en_US.UTF-8"
+
+# terminal colors
+readonly    NONE=$(tput sgr0)
+readonly     RED=$(tput setaf 1)
+readonly   GREEN=$(tput setaf 2)
+readonly  YELLOW=$(tput setaf 3)
+readonly    BLUE=$(tput setaf 4)
+readonly MAGENTA=$(tput setaf 5)
+readonly    CYAN=$(tput setaf 6)
+readonly   WHITE=$(tput setaf 7)
+
+# horizontal tabulator
+readonly TAB="	"
+
+# calculate time offset in seconds
+declare -i readonly OFFSET=$(date --utc --date="2019-01-01 00:00:00" "+%s")
+
+# this file holds the path of the active fashcard
+readonly ACTIVECARD=".active"
+
+# sleeptime:  last call of hit or miss (UTC)
+# awaketime:  NOW + 1.25 * (NOW - sleeptime)
+# braintime:  awaketime - sleeptime
+
+# ------------------------------------------------------------------------------
+# functions                                                            functions
+# ------------------------------------------------------------------------------
+
+# -------
+# failmsg
+# -------
+#
+# This function prints a red colored message via stderr.
+#
+function failmsg()
+{
+  # push to stderr
+  echo -e "${RED}[FAIL]${NONE} $1" 1>&2
+}
+
+# -------
+# warnmsg
+# -------
+#
+# This function prints a yellow colored message via stderr.
+#
+function warnmsg()
+{
+  # push to stderr
+  echo -e "${YELLOW}[WARN]${NONE} $1" 1>&2
+}
+
+# -------
+# infomsg
+# -------
+#
+# This function prints a blue colored message via stderr.
+#
+function infomsg()
+{
+  # push to stderr
+  echo -e "${BLUE}[INFO]${NONE} $1" 1>&2
+}
+
+# -------
+# donemsg
+# -------
+#
+# This function prints a green colored message via stderr.
+#
+function donemsg()
+{
+  # push to stderr
+  echo -e "${GREEN}[DONE]${NONE} $1" 1>&2
+}
+
+# ---------
+# show_help
+# ---------
+#
+#
+#
+function show_help()
+{
+  echo
+  echo "$(basename "$0") [option]"
+  echo
+  echo "OPTIONS"
+  echo "  -q        query next flashcard (expired flashcards first)"
+  echo "  -Q        query next flashcard (new flashcards first)"
+  echo "  -h        recent query was a hit"
+  echo "  -m        recent query was a miss"
+  echo
+  echo "  -t        show template tex code"
+  echo "  -f        finish template.tex"
+  echo
+  echo "  -a        add initial timestamp"
+  echo "  -r        remove timestamps"
+  echo "  -p        show progress"
+  echo "  -i <dir>  import missing pdf files from <dir>"
+  echo
+}
+
+# ----------------------
+# show_second_difference
+# ----------------------
+#
+# $1  from time (seconds)
+# $2  to   time (seconds)
+#
+function show_second_difference()
+{
+  # set internal names
+  local -i readonly FROMTIME="$1"
+  local -i readonly TOTIME="$2"
+
+  {
+    echo "scale = 0"
+    echo "if ($TOTIME < $FROMTIME) { -1 ; r = $FROMTIME - $TOTIME } else { 1 ; r = $TOTIME - $FROMTIME }"
+    echo "d = r / 86400"
+    echo "r = r % 86400"
+    echo "h = r / 3600"
+    echo "r = r % 3600"
+    echo "m = r / 60"
+    echo "s = r % 60"
+    echo "d ; h ; m ; s"
+  }                                    \
+  | bc                                 \
+  | sed -re "1{ s/-1/-/ ; s/1/+/ ; b}" \
+  | xargs printf "%s %4dd %2dh %2dm %2ds\n"
+}
+
+# ----------------------------
+# show_second_difference_tight
+# ----------------------------
+#
+# $1  from time (seconds)
+# $2  to   time (seconds)
+#
+function show_second_difference_tight()
+{
+  # set internal names
+  local readonly FROMTIME="$1"
+  local readonly TOTIME="$2"
+
+  {
+    echo "scale = 0"
+    echo "if ($TOTIME < $FROMTIME) { -1 ; r = $FROMTIME - $TOTIME } else { 1 ; r = $TOTIME - $FROMTIME }"
+    echo "d = r / 86400"
+    echo "r = r % 86400"
+    echo "h = r / 3600"
+    echo "r = r % 3600"
+    echo "m = r / 60"
+    echo "s = r % 60"
+    echo "d ; h ; m ; s"
+  }                       \
+  | bc                    \
+  | sed --quiet           \
+        --regexp-extended \
+        --expression="
+          1{ s/^-1$/-/ ; s/^1$/+/ ; h ; b }
+          2{ s/$/d/ ; H ; b }
+          3{ s/$/h/ ; H ; b }
+          4{ s/$/m/ ; H ; b }
+          5{ s/$/s/ ; H ; g ; s/\x0A+/ /g ; s/^ // ; s/ $// ; /.+/p ; q }
+        "
+}
+
+# --------------------
+# get_active_flashcard
+# --------------------
+#
+# This function pushes the name of the flashcard to stdout,
+# that is currently querried.
+#
+function get_active_flashcard()
+{
+  # check if ACTIVECARD file is present and not empty
+  if [ -s "$ACTIVECARD" ] ; then
+
+    # print first line that holds at least one non-space character
+    sed -nre "s/.*[^[:space:]].*/&/p ; T ; q" "$ACTIVECARD"
+
+  fi
+}
+
+# --------------------
+# set_active_flashcard
+# --------------------
+#
+# This function sets the name of the flashcard, that is currently querried.
+#
+# $1  flashcard path
+#
+function set_active_flashcard()
+{
+  if [ -z "$1" ] ; then
+
+    truncate -s 0 "$ACTIVECARD"
+
+  else
+
+    echo "$1" > "$ACTIVECARD"
+
+  fi
+}
+
+# -----------------
+# get_new_flashcard
+# -----------------
+#
+# This function pushes the name of the first flashcard to stdout,
+# whose name starts with 000000000000-000000000000.
+#
+function get_new_flashcard()
+{
+  # try to find totally new flashcard
+  local NEXTCARD=$(find "$PWD"                                                         \
+                        -maxdepth  "1"                                                 \
+                        -type      "f"                                                 \
+                        -regextype "posix-extended"                                    \
+                        -regex     ".+/000000000000-000000000000-[^/]+\.[Pp][Dd][Ff]$" \
+                        -printf    "%P\n"                                              \
+                   | sort                                                              \
+                   | head -n 1)
+
+  # check if flashcard has been found
+  if [ -n "$NEXTCARD" ] ; then
+
+    # push path to stdout
+    echo "$NEXTCARD"
+
+    # signalize success
+    return 0
+
+  fi
+
+  # no file found
+  return 1
+}
+
+# ---------------------
+# get_expired_flashcard
+# ---------------------
+#
+# This function pushes the name of the flashcard to stdout,
+# that is expired and has the smallest 'learn time'.
+#
+function get_expired_flashcard()
+{
+  # sed abbreviations
+  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
+  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
+
+  # initialize time values ('learn' and 'hit')
+  local -i MINLTIME="999999999999"
+  local -i MINHTIME="999999999999"
+  
+  # initialize path of next flashcard to query
+  local NEXTCARD=""
+
+  # get current timestamp
+  local -i readonly NOW=$(date --utc "+%s")
+
+  # try to find expired flashcard with the smallest 'learn time' value
+  while read -r FILENAME QTIME HTIME
+  do
+
+    # skip future flashcards
+    (( QTIME > NOW )) && continue
+
+    # calculate 'learn time'
+    local -i LTIME=$(bc <<< "$QTIME - $HTIME")
+
+    # find minumum LTIME
+    if (( LTIME < MINLTIME )) ; then
+
+      # update path
+      local NEXTCARD="$FILENAME"
+
+      # update time values
+      local -i MINLTIME="$LTIME"
+      local -i MINHTIME="$HTIME"
+
+    # very unlikely case of two equal LTIME values
+    elif (( LTIME == MINLTIME )) ; then
+
+      # use older flashcard
+      if (( HTIME < MINHTIME )) ; then
+
+        # update path
+        local NEXTCARD="$FILENAME"
+
+        # update time values
+        local -i MINLTIME="$LTIME"
+        local -i MINHTIME="$HTIME"
+
+      fi
+
+    fi
+
+  done < <(find "$PWD"                                                               \
+                -maxdepth  "1"                                                       \
+                -type      "f"                                                       \
+                -regextype "posix-extended"                                          \
+                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"                                                    \
+           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p")
+
+  # check if flashcard has been found
+  if [ -n "$NEXTCARD" ] ; then
+
+    # push path to stdout
+    echo "$NEXTCARD"
+
+    # signalize success
+    return 0
+
+  fi
+
+  # no file found
+  return 1
+}
+
+# -------------
+# add_timestamp
+# -------------
+#
+#
+#
+function add_timestamp()
+{
+  # get pdf files without timestamps
+  while read -r FILENAME
+  do
+
+    # set initial timestamps
+    local NEWNAME="000000000000-000000000000-$FILENAME"
+
+    # check if file already exists
+    if [ -f "$NEWNAME" ] ; then
+
+      # notify user
+      warnmsg "file already exists: \"$NEWNAME\""
+
+      # next file
+      continue
+
+    fi
+
+    # add initial timestamps
+    mv -f "$FILENAME" "$NEWNAME" &>"/dev/null"
+
+    # show progress
+    infomsg "timestamp added: $FILENAME --> $NEWNAME"
+
+  done < <(find "$PWD"                         \
+                -maxdepth  "1"                 \
+                -type      "f"                 \
+                -regextype "posix-extended"    \
+                -regex     ".+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"              \
+           | egrep -v "^[[:digit:]]{12}-[[:digit:]]{12}-")
+
+  # show success
+  return 0
+}
+
+# ---------------
+# finish_template
+# ---------------
+#
+#
+#
+function finish_template()
+{
+  # set source file
+  local SOURCEFILE="template.tex"
+
+  # check if source file is missing
+  if [ ! -f "$SOURCEFILE" ] ; then
+
+    # notify user
+    failmsg "unable to locate source file: \"$SOURCEFILE\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # get timestamp (UTC)
+  local NOW=$(date --utc "+%Y%m%d-%H%M%S")
+
+  # set target file
+  local TARGETFILE="$NOW.tex"
+
+  # wait for unique filename
+  while [ -f "$TARGETFILE" ]
+  do
+
+    # notify user
+    warnmsg "target file already exists: $TARGETFILE"
+
+    # wait one second
+    sleep 1
+
+    # get timestamp (UTC)
+    local NOW=$(date -u "+%Y%m%d-%H%M%S")
+
+    # set target file
+    local TARGETFILE="$NOW.tex"
+
+  done
+
+  # copy tex code
+  cat "$SOURCEFILE" > "$TARGETFILE"
+
+  # notify user
+  donemsg "file created: $TARGETFILE"
+
+  # create pdf file
+  pdflatex "$TARGETFILE" &>"/dev/null"
+
+  # check if pdf file has been created
+  if [ ! -s "$NOW.pdf" ] ; then
+
+    # notify user
+    failmsg "unable to create pdf file: \"$NOW.pdf\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # remove temporary files
+  rm -f *.aux *.log
+
+  # notify user
+  donemsg "file created: $NOW.pdf"
+
+  # signalize success
+  return 0
+}
+
+# ---
+# hit
+# ---
+#
+#
+#
+function hit()
+{
+  # get active flashcard
+  local ACTIVE=$(get_active_flashcard)
+
+  # check given string
+  if [ -z "$ACTIVE" ] ; then
+
+    # notify user
+    failmsg "no flashcard specified"
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # check given path
+  if [ ! -f "$ACTIVE" ] ; then
+
+    # notify user
+    failmsg "unable to locate flashcard: \"$ACTIVE\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # sed abbreviations
+  readonly SEDREG="^0*([[:digit:]]+)-0*([[:digit:]]+)-(.+)$"
+  readonly SEDOUT="\1$TAB\2$TAB\3"
+
+  # split flashcard path
+  read -r AWAKETIME SLEEPTIME FIXPART < <(sed -nre "s/$SEDREG/$SEDOUT/p ; T ; q" <<< "$ACTIVE")
+
+  # get current timestamp
+  local NOW=$(date --utc "+%s")
+
+  # at least one initial timestamp found
+  if [ "$AWAKETIME" == "0" ] || [ "$SLEEPTIME" == "0" ] ; then
+
+    # charm flashcard to sleep for 90 seconds
+    local AWAKETIME=$(bc <<< "$NOW + 90")
+
+  else
+
+    # charm flashcard to sleep for 1.25 * (NOW - SLEEPTIME) seconds
+    local AWAKETIME=$(bc <<< "scale=0; ($NOW + 1.25 * ($NOW - $SLEEPTIME) + 0.5) / 1")
+
+  fi
+
+  # set new filename
+  local TARGETPATH=$(printf "%012d-%012d-%s" "$AWAKETIME" "$NOW" "$FIXPART")
+
+  # check if target path already exists
+  if [ -f "$TARGETPATH" ] ; then
+
+    # notify user
+    failmsg "target file already exists: \"$TARGETPATH\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # update timestamps
+  mv -f "$ACTIVE" "$TARGETPATH" &>"/dev/null"
+
+  # check operation
+  if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
+
+    # clear active flashcard
+    set_active_flashcard ""
+
+    # calculate readable time difference
+    local DELTA=$(show_second_difference_tight "$NOW" "$AWAKETIME")
+
+    # show progress
+    donemsg "$FIXPART: $DELTA"
+
+  else
+
+    # notify user
+    failmsg "flashcard could not be moved: \"$ACTIVE\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# ------
+# import
+# ------
+#
+#
+#
+function import()
+{
+  echo "TODO"
+}
+
+# ----
+# miss
+# ----
+#
+#
+#
+function miss()
+{
+  # get active flashcard
+  local ACTIVE=$(get_active_flashcard)
+
+  # check given string
+  if [ -z "$ACTIVE" ] ; then
+
+    # notify user
+    failmsg "no flashcard specified"
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # check given path
+  if [ ! -f "$ACTIVE" ] ; then
+
+    # notify user
+    failmsg "unable to locate flashcard: \"$ACTIVE\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # sed abbreviations
+  readonly SEDREG="^0*([[:digit:]]+)-0*([[:digit:]]+)-(.+)$"
+  readonly SEDOUT="\1$TAB\2$TAB\3"
+
+  # split flashcard path
+  read -r AWAKETIME SLEEPTIME FIXPART < <(sed -nre "s/$SEDREG/$SEDOUT/p ; T ; q" <<< "$ACTIVE")
+
+  # get current timestamp
+  local NOW=$(date --utc "+%s")
+
+  # charm flashcard to sleep for 60 seconds
+  local AWAKETIME=$(bc <<< "$NOW + 60")
+
+  # set new filename
+  local TARGETPATH=$(printf "%012d-%012d-%s" "$AWAKETIME" "$NOW" "$FIXPART")
+
+  # check if target path already exists
+  if [ -f "$TARGETPATH" ] ; then
+
+    # notify user
+    failmsg "target file already exists: \"$TARGETPATH\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # update timestamps
+  mv -f "$ACTIVE" "$TARGETPATH" &>"/dev/null"
+
+  # check operation
+  if [ -f "$TARGETPATH" ] && [ ! -f "$ACTIVE" ] ; then
+
+    # clear active flashcard
+    set_active_flashcard ""
+
+    # calculate readable time difference
+    local DELTA=$(show_second_difference_tight "$NOW" "$AWAKETIME")
+
+    # show progress
+    donemsg "$FIXPART: $DELTA"
+
+  else
+
+    # notify user
+    failmsg "flashcard could not be moved: \"$ACTIVE\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# -------------
+# show_progress
+# -------------
+#
+#
+#
+function show_progress()
+{
+  # sed abbreviations
+  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
+  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
+
+  # get current timestamp
+  local -i readonly NOW=$(date --utc "+%s")
+
+  # try to find expired flashcard with the smallest 'learn time' value
+  while read -r FILENAME QTIME HTIME
+  do
+
+    # show time gap
+    printf "%16s  %s\n" "$(show_second_difference "$NOW" "$QTIME")" "$FILENAME"
+
+  done < <(find "$PWD"                                                               \
+                -maxdepth  "1"                                                       \
+                -type      "f"                                                       \
+                -regextype "posix-extended"                                          \
+                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"                                                    \
+           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p"      \
+           | sort)
+
+  # signalize success
+  return 0
+}
+
+# -----
+# query
+# -----
+#
+# $1  n = new flashcards first
+#     x = expired flashcards first
+#
+function query()
+{
+  # check if there is still an active flashcard
+  local NEXTCARD=$(get_active_flashcard)
+
+  # no (valid) flashcard found
+  if [ -z "$NEXTCARD" ] || [ ! -f "$NEXTCARD" ] ; then
+
+    # new flashcards first
+    if [ "$1" == "n" ] ; then
+
+      local NEXTCARD=$(get_new_flashcard)
+
+      if [ -z "$NEXTCARD" ] ; then
+
+        local NEXTCARD=$(get_expired_flashcard)
+
+      fi
+
+    # expired flashcards first
+    elif [ "$1" == "x" ] ; then
+
+      local NEXTCARD=$(get_expired_flashcard)
+
+      if [ -z "$NEXTCARD" ] ; then
+
+        local NEXTCARD=$(get_new_flashcard)
+
+      fi
+
+    fi
+
+  fi
+
+  # update active flashcard
+  set_active_flashcard "$NEXTCARD"
+
+  # check path
+  if [ -n "$NEXTCARD" ] ; then
+
+    # show page 1 from NEXTCARD flashcard
+    xreader -i 1 "$NEXTCARD" &>"/dev/null" &
+
+  else
+
+    # notify user
+    donemsg "all flashcards seem to be learned"
+
+  fi
+
+  # signalize success
+  return 0
+}
+
+# ----------------
+# remove_timestamp
+# ----------------
+#
+#
+#
+function remove_timestamp()
+{
+  # sed abbreviations
+  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
+  local readonly SEDOUT="\1\2-\3\4-\5$TAB\5"
+
+  # try to find expired flashcard with the smallest 'learn time' value
+  while read -r FILENAME NEWNAME
+  do
+
+    # check if file already exists
+    if [ -f "$NEWNAME" ] ; then
+
+      # notify user
+      warnmsg "file already exists: \"$NEWNAME\""
+
+      # next file
+      continue
+
+    fi
+
+    # add initial timestamps
+    mv -f "$FILENAME" "$NEWNAME" &>"/dev/null"
+
+    # show progress
+    infomsg "timestamp removed: $NEWNAME <-- $FILENAME"
+
+  done < <(find "$PWD"                                                               \
+                -maxdepth  "1"                                                       \
+                -type      "f"                                                       \
+                -regextype "posix-extended"                                          \
+                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+                -printf    "%P\n"                                                    \
+           | sed -nre "s/$SEDREG/$SEDOUT/p"                                          \
+           | sort)
+
+  # signalize success
+  return 0
+}
+
+# -------------
+# show_template
+# -------------
+#
+#
+#
+function show_template()
+{
+  # show LaTeX code
+  echo "% layout and global options"
+  echo "\\documentclass"
+  echo "["
+  echo "  draft    = true,"
+  echo "  fontsize = 11pt,"
+  echo "  parskip  = half-,"
+  echo "  ngerman,"
+  echo "  dvipsnames"
+  echo "]"
+  echo "{scrartcl}"
+  echo
+  echo "% DIN-A5 landscape"
+  echo "\\usepackage"
+  echo "["
+  echo "  paperwidth  = 210mm,"
+  echo "  paperheight = 148mm,"
+  echo "  top         = 8mm,"
+  echo "  left        = 8mm,"
+  echo "  right       = 8mm,"
+  echo "  bottom      = 8mm"
+  echo "]{geometry}"
+  echo
+  echo "% default packages"
+  echo "\\usepackage[utf8]{inputenc}"
+  echo "\\usepackage[T1]{fontenc}"
+  echo "\\usepackage{lmodern}"
+  echo "\\usepackage{babel}"
+  echo "% extra packages"
+  echo "\\usepackage{amsmath}"
+  echo "\\usepackage{amssymb}"
+  echo "\\usepackage{enumerate}"
+  echo "\\usepackage{graphicx}"
+  echo "\\usepackage{ifthen}"
+  echo "\\usepackage{siunitx}"
+  echo "\\usepackage{soulutf8}"
+  echo "\\usepackage{tikz}"
+  echo "\\usepackage{url}"
+  echo
+  echo "% basic calculations in TikZ"
+  echo "\\usetikzlibrary{calc}"
+  echo
+  echo "% use comma as decimal separator"
+  echo "\\sisetup{locale=DE, group-minimum-digits=4}"
+  echo
+  echo "% no header, no footer"
+  echo "\\pagestyle{empty}"
+  echo
+  echo "% the number of open CENTER environments"
+  echo "\\newcounter{CENTERDEPTH}"
+  echo "\\setcounter{CENTERDEPTH}{0}"
+  echo
+  echo "% ------"
+  echo "% CENTER"
+  echo "% ------"
+  echo "%"
+  echo "%"
+  echo "%"
+  echo "\\newenvironment{CENTER}"
+  echo "{%"
+  echo "  \\addtocounter{CENTERDEPTH}{1}%"
+  echo "  \\begin{center}%"
+  echo "    \\vspace*{\\fill}%"
+  echo "}%"
+  echo "{%"
+  echo "    \\vspace*{\\fill}%"
+  echo "  \\end{center}%"
+  echo "  \\addtocounter{CENTERDEPTH}{-1}%"
+  echo "}"
+  echo
+  echo "% ---------"
+  echo "% landscape"
+  echo "% ---------"
+  echo "%"
+  echo "% #1  path"
+  echo "%"
+  echo "\\newcommand{\\landscape}[1]"
+  echo "{%"
+  echo "  \\ifthenelse{\\theCENTERDEPTH=0}%"
+  echo "  {%"
+  echo "    \\begin{tikzpicture}"
+  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
+  echo "      \\pgfdeclareimage[interpolate=true, width=\\textwidth]{image}{#1};"
+  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight}]"
+  echo "      {%"
+  echo "        \\pgfuseimage{image}%"
+  echo "      };"
+  echo "    \\end{tikzpicture}%"
+  echo "  }%"
+  echo "  {%"
+  echo "    Do not use \\textbackslash\\texttt{landscape} inside \\texttt{CENTER} environment\\ldots%"
+  echo "  }%"
+  echo "}"
+  echo
+  echo "% --------"
+  echo "% portrait"
+  echo "% --------"
+  echo "%"
+  echo "% #1  path"
+  echo "%"
+  echo "\\newcommand{\\portrait}[1]"
+  echo "{%"
+  echo "  \\ifthenelse{\\theCENTERDEPTH=0}%"
+  echo "  {%"
+  echo "    \\begin{tikzpicture}"
+  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
+  echo "      \\pgfdeclareimage[interpolate=true, height=\\textheight]{image}{#1};"
+  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight}]"
+  echo "      {%"
+  echo "        \\pgfuseimage{image}"
+  echo "      };"
+  echo "    \\end{tikzpicture}%"
+  echo "  }%"
+  echo "  {%"
+  echo "    Do not use \\textbackslash\\texttt{portrait} inside \\texttt{CENTER} environment\\ldots%"
+  echo "  }%"
+  echo "}"
+  echo
+  echo "% ------"
+  echo "% vstrut"
+  echo "% ------"
+  echo "%"
+  echo "%"
+  echo "%"
+  echo "\\newcommand{\\vstrut}{\\vphantom{\\ensuremath{(}}}"
+  echo
+  echo "% --------"
+  echo "% clozegap"
+  echo "% --------"
+  echo "%"
+  echo "%"
+  echo "%"
+  echo "\\newcommand{\\clozegap}[2]{{\\color{#1}\\ul{#2}}}"
+  echo
+  echo "% ------------------------------------------------------------------------------"
+  echo "\\begin{document}"
+  echo "% ------------------------------------------------------------------------------"
+  echo
+  echo "\\newcommand{\\cloze}[1]"
+  echo "{%"
+  echo "  \\begin{minipage}{0.8\\linewidth}%"
+  echo "    Ein Lückentext ist ein Text, in dem \\clozegap{#1}{Buchstaben},"
+  echo "    \\clozegap{#1}{Silben}, \\clozegap{#1}{Wörter} oder \\clozegap{#1}{Satzteile}"
+  echo "    ausgelassen wurden. Die Testteilnehmer oder Schüler sind aufgefordert,"
+  echo "    die fehlenden Textteile (Textlücken) zu \\clozegap{#1}{ergänzen}."
+  echo "  \\end{minipage}%"
+  echo "}%"
+  echo
+  echo "\\begin{CENTER}"
+  echo "  \\Large"
+  echo "  \\sffamily"
+  echo "  \\bfseries"
+  echo "  \\cloze{white}"
+  echo "\\end{CENTER}"
+  echo
+  echo "\\clearpage"
+  echo
+  echo "\\begin{CENTER}"
+  echo "  \\Large"
+  echo "  \\sffamily"
+  echo "  \\bfseries"
+  echo "  \\cloze{blue}"
+  echo "\\end{CENTER}"
+  echo
+  echo "% ------------------------------------------------------------------------------"
+  echo "\\end{document}"
+  echo "% ------------------------------------------------------------------------------"
+}
+
+# ------------------------------------------------------------------------------
+# options                                                                options
+# ------------------------------------------------------------------------------
+
+# set default values
+OPMODE="SHOW_HELP"
+IMPORT_SOURCE=""
+
+# set options to accept
+readonly KNOWN_OPTIONS=":afhi:mpQqrt"
+
+# check passed options
+while getopts "$KNOWN_OPTIONS" OPTION "$@"
+do
+
+  case "$OPTION" in
+
+    "a") OPMODE="ADD_TIMESTAMP"
+         ;;
+
+    "f") OPMODE="FINISH_TEMPLATE"
+         ;;
+
+    "h") OPMODE="HIT"
+         ;;
+
+    "i") OPMODE="IMPORT"
+         IMPORT_SOURCE="$OPTARG"
+         ;;
+
+    "m") OPMODE="MISS"
+         ;;
+
+    "p") OPMODE="SHOW_PROGRESS"
+         ;;
+
+    "Q") OPMODE="QUERY_NEW"
+         ;;
+
+    "q") OPMODE="QUERY_EXPIRED"
+         ;;
+
+    "r") OPMODE="REMOVE_TIMESTAMP"
+         ;;
+
+    "t") OPMODE="SHOW_TEMPLATE"
+         ;;
+
+    "?") failmsg "unknown option: -$OPTARG"
+         exit 1
+         ;;
+
+    ":") failmsg "missing argument: -$OPTARG <argument>"
+         exit 1
+         ;;
+
+  esac
+
+done
+
+# get number of positional parameters
+PPNUM=$(( $# - OPTIND + 1 ))
+
+# drop all parsed options
+shift $(( OPTIND - 1 ))
+
+# check number of positional parameters
+if (( PPNUM > 0 )) ; then
+
+  # notify user
+  failmsg "no positional parameters allowed"
+
+  # signalize trouble
+  exit 1
+
+fi
+
+# ------------------------------------------------------------------------------
+# commands                                                              commands
+# ------------------------------------------------------------------------------
+
+case "$OPMODE" in
+  "SHOW_HELP")        show_help               ;;
+  "ADD_TIMESTAMP")    add_timestamp           ;;
+  "FINISH_TEMPLATE")  finish_template         ;;
+  "HIT")              hit                     ;;
+  "IMPORT")           import "$IMPORT_SOURCE" ;;
+  "MISS")             miss                    ;;
+  "SHOW_PROGRESS")    show_progress           ;;
+  "QUERY_NEW")        query "n"               ;;
+  "QUERY_EXPIRED")    query "x"               ;;
+  "REMOVE_TIMESTAMP") remove_timestamp        ;;
+  "SHOW_TEMPLATE")    show_template           ;;
+esac
+
+# signalize success
+exit 0
+
