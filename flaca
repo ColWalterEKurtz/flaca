@@ -975,6 +975,9 @@ function show_template()
   echo "% use comma as decimal separator"
   echo "\\sisetup{locale=DE, group-minimum-digits=4}"
   echo
+  echo "% black lines for \\ul"
+  echo "\\setulcolor{black}%"
+  echo
   echo "% no header, no footer"
   echo "\\pagestyle{empty}"
   echo
