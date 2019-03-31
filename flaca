@@ -118,6 +118,7 @@ function show_help()
   echo "  -r        remove timestamps"
   echo "  -p        show progress"
   echo "  -i <dir>  import missing pdf files from <dir>"
+  echo "  -I <dir>  import missing pdf files from <dir> (keep existing timestamps)"
   echo
 }
 
@@ -565,11 +566,129 @@ function hit()
 # import
 # ------
 #
-#
+# $1  k  keep timestamps
+#     r  reset timestamps
+# $2  source directory
 #
 function import()
 {
-  echo "TODO"
+  # check source directory
+  if [ -z "$2" ] || [ ! -d "$2" ] ; then
+
+    # notify user
+    failmsg "unable to locate source directory: \"$2\""
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # create temporary files
+  local TMPLOCAL=$(mktemp --suffix=".local")
+  local TMPREMOTE=$(mktemp --suffix=".remote")
+
+  # clean up on exit
+  trap 'rm -f "$TMPLOCAL" "$TMPREMOTE"' EXIT
+
+  # show progress
+  infomsg "searching local pdf files"
+
+  # find local pdf files
+  find "$PWD"                         \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
+  | while read -r FLASHCARD
+  do
+
+    sha1sum "$FLASHCARD"
+
+  done | sort > "$TMPLOCAL"
+
+  # show progress
+  infomsg "searching remote pdf files"
+
+  # find remote pdf files
+  find "$2"                           \
+       -type      "f"                 \
+       -regextype "posix-extended"    \
+       -regex     ".+\.[Pp][Dd][Ff]$" \
+  | sort                              \
+  | while read -r FLASHCARD
+  do
+
+    sha1sum "$FLASHCARD"
+
+  done | sort > "$TMPREMOTE"
+
+  # show progress
+  infomsg "searching missing pdf files"
+
+  # find hash values that are unique to file 2 (remote pdf files)
+  comm -13 <(sed -re "s/ .+//" "$TMPLOCAL")  \
+           <(sed -re "s/ .+//" "$TMPREMOTE") \
+  | while read -r HASHKEY
+  do
+
+    # get related source file
+    local SRCFILE=$(sed -nre "s/^$HASHKEY[[:space:]]+([^[:space:]].+)/\1/p" "$TMPREMOTE")
+
+    # reset timestamps
+    if [ "$1" == "r" ] ; then
+
+      local TARGETPATH=$(basename "$SRCFILE" | sed -re "s/^[[:digit:]]{12}-[[:digit:]]{12}-(.+)/\1/ ; s/.+/000000000000-000000000000-&/")
+
+    # keep timestamps
+    elif [ "$1" == "k" ] ; then
+
+      local TARGETPATH=$(basename "$SRCFILE" | sed -re "/^[[:digit:]]{12}-[[:digit:]]{12}-.+/{ b } ; s/.+/000000000000-000000000000-&/")
+
+    fi
+
+    # check if file already exists
+    if [ -f "$TARGETPATH" ] ; then
+
+      # notify user
+      warnmsg "skipping file with existing path: \"$TARGETPATH\""
+
+      # try next file
+      continue
+
+    fi
+
+    # copy source file to first box
+    cp "$SRCFILE" "$TARGETPATH" &>"/dev/null"
+
+    # check operation
+    if [ -f "$TARGETPATH" ] ; then
+
+      # update access and modification times
+      touch "$TARGETPATH"
+
+      # show progress
+      donemsg "file created: $TARGETPATH"
+
+    else
+
+      # notify user
+      failmsg "unable to copy file: \"$SRCFILE\""
+
+      # signalize trouble
+      return 1
+
+    fi
+
+  done
+
+  # remove temporary files
+  rm -f "$TMPLOCAL" "$TMPREMOTE" 
+
+  # reset trap
+  trap - EXIT
+
+  # signalize success
+  return 0
 }
 
 # ----
@@ -989,7 +1108,7 @@ OPMODE="SHOW_HELP"
 IMPORT_SOURCE=""
 
 # set options to accept
-readonly KNOWN_OPTIONS=":afhi:mpQqrt"
+readonly KNOWN_OPTIONS=":afhI:i:mpQqrt"
 
 # check passed options
 while getopts "$KNOWN_OPTIONS" OPTION "$@"
@@ -1006,7 +1125,11 @@ do
     "h") OPMODE="HIT"
          ;;
 
-    "i") OPMODE="IMPORT"
+    "I") OPMODE="IMPORT_KEEP"
+         IMPORT_SOURCE="$OPTARG"
+         ;;
+
+    "i") OPMODE="IMPORT_RESET"
          IMPORT_SOURCE="$OPTARG"
          ;;
 
@@ -1062,17 +1185,18 @@ fi
 # ------------------------------------------------------------------------------
 
 case "$OPMODE" in
-  "SHOW_HELP")        show_help               ;;
-  "ADD_TIMESTAMP")    add_timestamp           ;;
-  "FINISH_TEMPLATE")  finish_template         ;;
-  "HIT")              hit                     ;;
-  "IMPORT")           import "$IMPORT_SOURCE" ;;
-  "MISS")             miss                    ;;
-  "SHOW_PROGRESS")    show_progress           ;;
-  "QUERY_NEW")        query "n"               ;;
-  "QUERY_EXPIRED")    query "x"               ;;
-  "REMOVE_TIMESTAMP") remove_timestamp        ;;
-  "SHOW_TEMPLATE")    show_template           ;;
+  "SHOW_HELP")        show_help                   ;;
+  "ADD_TIMESTAMP")    add_timestamp               ;;
+  "FINISH_TEMPLATE")  finish_template             ;;
+  "HIT")              hit                         ;;
+  "IMPORT_KEEP")      import "k" "$IMPORT_SOURCE" ;;
+  "IMPORT_RESET")     import "r" "$IMPORT_SOURCE" ;;
+  "MISS")             miss                        ;;
+  "SHOW_PROGRESS")    show_progress               ;;
+  "QUERY_NEW")        query "n"                   ;;
+  "QUERY_EXPIRED")    query "x"                   ;;
+  "REMOVE_TIMESTAMP") remove_timestamp            ;;
+  "SHOW_TEMPLATE")    show_template               ;;
 esac
 
 # signalize success
