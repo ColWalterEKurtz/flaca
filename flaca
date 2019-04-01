@@ -122,6 +122,18 @@ function show_help()
   echo
 }
 
+# ------------
+# get_now_time
+# ------------
+#
+# This function pushes the current 'time' in seconds to stdout.
+#
+function get_now_time()
+{
+  # get current UTC time and sutract '2019-01-01 00:00:00'
+  date --utc "+%s - $OFFSET" | bc
+}
+
 # ----------------------
 # show_second_difference
 # ----------------------
@@ -131,13 +143,9 @@ function show_help()
 #
 function show_second_difference()
 {
-  # set internal names
-  local -i readonly FROMTIME="$1"
-  local -i readonly TOTIME="$2"
-
   {
     echo "scale = 0"
-    echo "if ($TOTIME < $FROMTIME) { -1 ; r = $FROMTIME - $TOTIME } else { 1 ; r = $TOTIME - $FROMTIME }"
+    echo "if ($2 < $1) { -1 ; r = $1 - $2 } else { 1 ; r = $2 - $1 }"
     echo "d = r / 86400"
     echo "r = r % 86400"
     echo "h = r / 3600"
@@ -788,31 +796,37 @@ function miss()
 #
 function show_progress()
 {
-  # sed abbreviations
-  local readonly SEDREG="^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$"
-  local readonly SEDOUT="\1\2-\3\4-\5$TAB\2$TAB\4"
+  local readonly BCSCRIPT="                                                                       \
+  scale = 0 ;                                                                                     \
+  if (\\4 < \\2) { print \"-\\\\n\" ; r = \\2 - \\4 } else { print \"+\\\\n\" ; r = \\4 - \\2 } ; \
+  d = r / 86400 ;                                                                                 \
+  r = r % 86400 ;                                                                                 \
+  h = r / 3600 ;                                                                                  \
+  r = r % 3600 ;                                                                                  \
+  m = r / 60 ;                                                                                    \
+  s = r % 60 ;                                                                                    \
+  d ; h ; m ; s ; print \"\\1\\2-\\3\\4-\\5\\\\n\""
 
-  # get current timestamp
-  local -i readonly NOW=$(date --utc "+%s")
+  find "$PWD"                                                               \
+       -maxdepth  "1"                                                       \
+       -type      "f"                                                       \
+       -regextype "posix-extended"                                          \
+       -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
+       -printf    "%P\n"                                                    \
+  | sed --quiet                                                             \
+        --regexp-extended                                                   \
+        --expression="
 
-  # try to find expired flashcard with the smallest 'learn time' value
-  while read -r FILENAME QTIME HTIME
-  do
+          # skip totally new files
+          /^000000000000-000000000000/ d 
 
-    # show time gap
-    printf "%16s  %s\n" "$(show_second_difference "$NOW" "$QTIME")" "$FILENAME"
+          # split filename: FILENAME TAB AWAKETIME TAB SLEEPTIME
+          s|^(0*)([[:digit:]]+)-(0*)([[:digit:]]+)-(.+)$|$BCSCRIPT|p
 
-  done < <(find "$PWD"                                                               \
-                -maxdepth  "1"                                                       \
-                -type      "f"                                                       \
-                -regextype "posix-extended"                                          \
-                -regex     ".+/[[:digit:]]{12}-[[:digit:]]{12}-[^/]+\.[Pp][Dd][Ff]$" \
-                -printf    "%P\n"                                                    \
-           | sed -nre "/^000000000000-000000000000/{ d } ; s/$SEDREG/$SEDOUT/p"      \
-           | sort)
-
-  # signalize success
-  return 0
+        "                                       \
+  | bc                                          \
+  | xargs printf "%s %4dd %2dh %2dm %2ds  %s\n" \
+  | sort --reverse
 }
 
 # -----
