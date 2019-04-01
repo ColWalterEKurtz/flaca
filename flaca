@@ -106,8 +106,8 @@ function show_help()
   echo "$(basename "$0") [option]"
   echo
   echo "OPTIONS"
-  echo "  -q        query next flashcard (expired flashcards first)"
-  echo "  -Q        query next flashcard (new flashcards first)"
+  echo "  -q        query next flashcard (expired flashcards first then new ones)"
+  echo "  -Q        query next flashcard (new flashcards only)"
   echo "  -h        recent query was a hit"
   echo "  -m        recent query was a miss"
   echo
@@ -132,31 +132,6 @@ function get_now_time()
 {
   # get current UTC time and sutract '2019-01-01 00:00:00'
   date --utc "+%s - $OFFSET" | bc
-}
-
-# ----------------------
-# show_second_difference
-# ----------------------
-#
-# $1  from time (seconds)
-# $2  to   time (seconds)
-#
-function show_second_difference()
-{
-  {
-    echo "scale = 0"
-    echo "if ($2 < $1) { -1 ; r = $1 - $2 } else { 1 ; r = $2 - $1 }"
-    echo "d = r / 86400"
-    echo "r = r % 86400"
-    echo "h = r / 3600"
-    echo "r = r % 3600"
-    echo "m = r / 60"
-    echo "s = r % 60"
-    echo "d ; h ; m ; s"
-  }                                    \
-  | bc                                 \
-  | sed -re "1{ s/-1/-/ ; s/1/+/ ; b}" \
-  | xargs printf "%s %4dd %2dh %2dm %2ds\n"
 }
 
 # ----------------------------
@@ -826,14 +801,14 @@ function show_progress()
         "                                       \
   | bc                                          \
   | xargs printf "%s %4dd %2dh %2dm %2ds  %s\n" \
-  | sort --reverse
+  | sort
 }
 
 # -----
 # query
 # -----
 #
-# $1  n = new flashcards first
+# $1  n = new flashcards only
 #     x = expired flashcards first
 #
 function query()
@@ -844,18 +819,12 @@ function query()
   # no (valid) flashcard found
   if [ -z "$NEXTCARD" ] || [ ! -f "$NEXTCARD" ] ; then
 
-    # new flashcards first
+    # only new flashcards
     if [ "$1" == "n" ] ; then
 
       local NEXTCARD=$(get_new_flashcard)
 
-      if [ -z "$NEXTCARD" ] ; then
-
-        local NEXTCARD=$(get_expired_flashcard)
-
-      fi
-
-    # expired flashcards first
+    # expired flashcards first then new ones
     elif [ "$1" == "x" ] ; then
 
       local NEXTCARD=$(get_expired_flashcard)
