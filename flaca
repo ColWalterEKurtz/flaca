@@ -806,7 +806,7 @@ function show_progress()
         "                                       \
   | bc                                          \
   | xargs printf "%s %4dd %2dh %2dm %2ds  %s\n" \
-  | sort
+  | sort --field-separator="s" --key="2"
 }
 
 # -----
