@@ -106,17 +106,18 @@ function show_help()
   echo "$(basename "$0") [option]"
   echo
   echo "OPTIONS"
-  echo "  -q        query next flashcard (expired flashcards first then new ones)"
+  echo "  -q        query next flashcard (expired flashcards first, then new ones)"
   echo "  -Q        query next flashcard (new flashcards only)"
-  echo "  -h        recent query was a hit"
-  echo "  -m        recent query was a miss"
-  echo
-  echo "  -t        show template tex code"
-  echo "  -f        finish template.tex"
-  echo
-  echo "  -a        add initial timestamp"
-  echo "  -r        remove timestamps"
+  echo "  -h        let flaca know that the recent query was a hit"
+  echo "  -m        let flaca know that the recent query was a miss"
   echo "  -p        show progress"
+  echo
+  echo "  -t        push some template LaTeX code to stdout"
+  echo "  -f        finish template (run pdflatex on template.tex)"
+  echo
+  echo "  -a        add initial (missing) timestamps to all pdf files in the current directory"
+  echo "  -r        remove timestamps from all pdf files in the current directory"
+  echo
   echo "  -i <dir>  import missing pdf files from <dir>"
   echo "  -I <dir>  import missing pdf files from <dir> (keep existing timestamps)"
   echo
