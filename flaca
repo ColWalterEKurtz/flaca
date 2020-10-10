@@ -112,7 +112,7 @@ function show_help()
   echo "  -m        let flaca know that the recent query was a miss"
   echo "  -p        show progress"
   echo
-  echo "  -t        push some template LaTeX code to stdout"
+  echo "  -t        create template files (template.tex and makefile)"
   echo "  -f        finish template (run pdflatex on template.tex)"
   echo
   echo "  -a        add initial (missing) timestamps to all pdf files in the current directory"
@@ -912,35 +912,19 @@ function remove_timestamp()
 }
 
 # -------------
-# show_template
+# show_document
 # -------------
 #
 #
 #
-function show_template()
+function show_document()
 {
-  # show LaTeX code
-  echo "% layout and global options"
   echo "\\documentclass"
   echo "["
-  echo "  draft    = true,"
-  echo "  fontsize = 11pt,"
-  echo "  parskip  = half-,"
-  echo "  ngerman,"
-  echo "  dvipsnames"
+  echo "  11pt,"
+  echo "  english"
   echo "]"
-  echo "{scrartcl}"
-  echo
-  echo "% DIN-A5 landscape"
-  echo "\\usepackage"
-  echo "["
-  echo "  paperwidth  = 210mm,"
-  echo "  paperheight = 148mm,"
-  echo "  top         = 8mm,"
-  echo "  left        = 8mm,"
-  echo "  right       = 8mm,"
-  echo "  bottom      = 8mm"
-  echo "]{geometry}"
+  echo "{beamer}"
   echo
   echo "% default packages"
   echo "\\usepackage[utf8]{inputenc}"
@@ -950,7 +934,6 @@ function show_template()
   echo "% extra packages"
   echo "\\usepackage{amsmath}"
   echo "\\usepackage{amssymb}"
-  echo "\\usepackage{enumerate}"
   echo "\\usepackage{graphicx}"
   echo "\\usepackage{ifthen}"
   echo "\\usepackage{pdfpages}"
@@ -965,198 +948,28 @@ function show_template()
   echo "% use comma as decimal separator"
   echo "\\sisetup{locale=DE, group-minimum-digits=4}"
   echo
+  echo "% enable setulcolor in beamer"
+  echo "\\makeatletter"
+  echo "\\let\\UL\\ul"
+  echo "\\renewcommand\\ul{%"
+  echo "  \\let\\set@color\\beamerorig@set@color"
+  echo "  \\let\\reset@color\\beamerorig@reset@color"
+  echo "  \\UL}"
+  echo "\\makeatother"
+  echo
   echo "% black lines for \\ul"
   echo "\\setulcolor{black}%"
   echo
-  echo "% no header, no footer"
-  echo "\\pagestyle{empty}"
-  echo
-  echo "% the number of open CENTER environments"
-  echo "\\newcounter{CENTERDEPTH}"
-  echo "\\setcounter{CENTERDEPTH}{0}"
-  echo
-  echo "% ------"
-  echo "% CENTER"
-  echo "% ------"
-  echo "%"
-  echo "%"
-  echo "%"
-  echo "\\newenvironment{CENTER}"
-  echo "{%"
-  echo "  \\addtocounter{CENTERDEPTH}{1}%"
-  echo "  \\begin{center}%"
-  echo "    \\vspace*{\\fill}%"
-  echo "}%"
-  echo "{%"
-  echo "    \\vspace*{\\fill}%"
-  echo "  \\end{center}%"
-  echo "  \\addtocounter{CENTERDEPTH}{-1}%"
-  echo "}"
-  echo
-  echo "% ---------"
-  echo "% landscape"
-  echo "% ---------"
-  echo "%"
-  echo "% #1  path"
-  echo "%"
-  echo "\\newcommand{\\landscape}[1]"
-  echo "{%"
-  echo "  \\ifthenelse{\\theCENTERDEPTH=0}%"
-  echo "  {%"
-  echo "    \\begin{tikzpicture}"
-  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "      \\pgfdeclareimage[interpolate=true, width=\\textwidth]{image}{#1};"
-  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight}]"
-  echo "      {%"
-  echo "        \\pgfuseimage{image}%"
-  echo "      };"
-  echo "    \\end{tikzpicture}%"
-  echo "  }%"
-  echo "  {%"
-  echo "    Do not use \\textbackslash\\texttt{landscape} inside \\texttt{CENTER} environment\\ldots%"
-  echo "  }%"
-  echo "}"
-  echo
-  echo "% --------"
-  echo "% portrait"
-  echo "% --------"
-  echo "%"
-  echo "% #1  path"
-  echo "%"
-  echo "\\newcommand{\\portrait}[1]"
-  echo "{%"
-  echo "  \\ifthenelse{\\theCENTERDEPTH=0}%"
-  echo "  {%"
-  echo "    \\begin{tikzpicture}"
-  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "      \\pgfdeclareimage[interpolate=true, height=\\textheight]{image}{#1};"
-  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight}]"
-  echo "      {%"
-  echo "        \\pgfuseimage{image}"
-  echo "      };"
-  echo "    \\end{tikzpicture}%"
-  echo "  }%"
-  echo "  {%"
-  echo "    Do not use \\textbackslash\\texttt{portrait} inside \\texttt{CENTER} environment\\ldots%"
-  echo "  }%"
-  echo "}"
+  echo "% select global theme"
+  echo "\\usetheme{Rochester}"
   echo
   echo "% ------"
   echo "% vstrut"
   echo "% ------"
   echo "%"
-  echo "%"
+  echo "% A vertical spacer."
   echo "%"
   echo "\\newcommand{\\vstrut}{\\vphantom{\\ensuremath{(}}}"
-  echo
-  echo "% -----"
-  echo "% rtext"
-  echo "% -----"
-  echo "%"
-  echo "% #1  question"
-  echo "% #2  answer"
-  echo "% #3  filename (path)"
-  echo "% #4  image width (factor times \\textwidth: 0 < #4 < 1.0)"
-  echo "% #5  text width  (factor times \\textwidth: 0 < #5 < 1.0)"
-  echo "%"
-  echo "\\newcommand{\\rtext}[5]"
-  echo "{"
-  echo "  % front"
-  echo "  \\begin{tikzpicture}"
-  echo "    % use entire text area"
-  echo "    \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "    % load image"
-  echo "    \\pgfdeclareimage[interpolate=true, width=#4\\textwidth]{image}{#3};"
-  echo "    % show image"
-  echo "    \\pgftext[at=\\pgfpoint{0.5*#4\\textwidth}{0.5\\textheight}]"
-  echo "    {%"
-  echo "      \\pgfuseimage{image}"
-  echo "    };"
-  echo "    % show text"
-  echo "    \\node[right] at (#4\\textwidth, 0.5\\textheight)"
-  echo "    {%"
-  echo "      \\begin{minipage}{#5\\textwidth}"
-  echo "        #1\\vstrut"
-  echo "      \\end{minipage}"
-  echo "    };"
-  echo "  \\end{tikzpicture}%"
-  echo "  \\clearpage"
-  echo "  % back"
-  echo "  \\begin{tikzpicture}"
-  echo "    % use entire text area"
-  echo "    \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "    % load image"
-  echo "    \\pgfdeclareimage[interpolate=true, width=#4\\textwidth]{image}{#3};"
-  echo "    % show image"
-  echo "    \\pgftext[at=\\pgfpoint{0.5*#4\\textwidth}{0.5\\textheight}]"
-  echo "    {%"
-  echo "      \\pgfuseimage{image}"
-  echo "    };"
-  echo "    % show text"
-  echo "    \\node[right] at (#4\\textwidth, 0.5\\textheight)"
-  echo "    {%"
-  echo "      \\begin{minipage}{#5\\textwidth}"
-  echo "        #2\\vstrut"
-  echo "      \\end{minipage}"
-  echo "    };"
-  echo "  \\end{tikzpicture}%"
-  echo "}"
-  echo
-  echo "% -----"
-  echo "% ttext"
-  echo "% -----"
-  echo "%"
-  echo "% #1  question"
-  echo "% #2  answer"
-  echo "% #3  filename (path)"
-  echo "% #4  image height (factor times \\textheight: 0 < #4 < 0.85)"
-  echo "%"
-  echo "\\newcommand{\\ttext}[4]"
-  echo "{"
-  echo "  \\begingroup"
-  echo "    \\newcommand{\\labelheight}{0.1}%"
-  echo "    \\newcommand{\\labelgap}{0.02}%"
-  echo "    % front"
-  echo "    \\begin{tikzpicture}"
-  echo "      % use entire text area"
-  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "      % set image to show"
-  echo "      \\pgfdeclareimage[interpolate=true, height=#4\\textheight]{image}{#3};"
-  echo "      % show image"
-  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight-0.5*\\labelheight*\\textheight-0.5*\\labelgap*\\textheight}]"
-  echo "      {%"
-  echo "        \\pgfuseimage{image}%"
-  echo "      };"
-  echo "      % show text"
-  echo "      \\node at (0.5\\textwidth, 0.5\\textheight+0.5*\\labelgap*\\textheight+0.5*#4*\\textheight)"
-  echo "      {%"
-  echo "        \\begin{minipage}{\\textwidth}"
-  echo "          \\centering#1\\vstrut"
-  echo "        \\end{minipage}"
-  echo "      };"
-  echo "    \\end{tikzpicture}"
-  echo "    \\clearpage"
-  echo "    % back"
-  echo "    \\begin{tikzpicture}"
-  echo "      % use entire text area"
-  echo "      \\clip (0, 0) rectangle (\\textwidth, \\textheight);"
-  echo "      % set image to show"
-  echo "      \\pgfdeclareimage[interpolate=true, height=#4\\textheight]{image}{#3};"
-  echo "      % show image"
-  echo "      \\pgftext[at=\\pgfpoint{0.5\\textwidth}{0.5\\textheight-0.5*\\labelheight*\\textheight-0.5*\\labelgap*\\textheight}]"
-  echo "      {%"
-  echo "        \\pgfuseimage{image}%"
-  echo "      };"
-  echo "      % show text"
-  echo "      \\node at (0.5\\textwidth, 0.5\\textheight+0.5*\\labelgap*\\textheight+0.5*#4*\\textheight)"
-  echo "      {%"
-  echo "        \\begin{minipage}{\\textwidth}"
-  echo "          \\centering#2\\vstrut"
-  echo "        \\end{minipage}"
-  echo "      };"
-  echo "    \\end{tikzpicture}%"
-  echo "  \\endgroup"
-  echo "}"
   echo
   echo "% --------"
   echo "% clozegap"
@@ -1186,29 +999,154 @@ function show_template()
   echo
   echo "\\newcommand{\\cloze}[1]"
   echo "{%"
-  echo "  \\begin{CENTER}"
-  echo "    \\Large"
-  echo "    \\sffamily"
-  echo "    \\bfseries"
-  echo "    \\begin{minipage}{0.8\\linewidth}%"
-  echo "      Ein Lückentext ist ein Text, in dem \\clozegap{#1}{1}{Buchstaben},"
-  echo "      \\clozegap{#1}{2}{Silben}, \\clozegap{#1}{3}{Wörter} oder \\clozegap{#1}{4}{Satzteile}"
-  echo "      ausgelassen wurden. Die Testteilnehmer oder Schüler sind aufgefordert,"
-  echo "      die fehlenden Textteile (Textlücken) zu \\clozegap{#1}{5}{ergänzen}."
+  echo "  \\begin{frame}"
+  echo "    \\frametitle{Triangles}"
+  echo "    \\begin{minipage}{0.49\\textwidth}"
+  echo "      \\centering"
+  echo "      \\begin{tikzpicture}"
+  echo "        \\coordinate (A) at (0, 0);"
+  echo "        \\coordinate (B) at (4, 0);"
+  echo "        \\coordinate (C) at (2, 5);"
+  echo "        % angles"
+  echo "        \\begin{scope}[fill=lightgray, draw=black]"
+  echo "          \\clip (A) -- (B) -- (C) -- cycle;"
+  echo "          \\filldraw (A) circle[radius=6mm];"
+  echo "          \\filldraw (B) circle[radius=6mm];"
+  echo "          \\filldraw (C) circle[radius=8mm];"
+  echo "          \\node[shift=(30:3.5mm)]  at (A) {\$\\alpha\$};"
+  echo "          \\node[shift=(150:3.5mm)] at (B) {\$\\alpha\$};"
+  echo "          \\node[shift=(270:5.5mm)] at (C) {\$\\gamma\$};"
+  echo "        \\end{scope}"
+  echo "        % edges"
+  echo "        \\draw (A) -- node[below] {\$c\$}"
+  echo "              (B) -- node[right] {\$a\$}"
+  echo "              (C) -- node[left]  {\$a\$}"
+  echo "              cycle;"
+  echo "        % vertices"
+  echo "        \\fill[fill=black] (A) circle[radius=1pt] node[below]{\$A\$};"
+  echo "        \\fill[fill=black] (B) circle[radius=1pt] node[below]{\$B\$};"
+  echo "        \\fill[fill=black] (C) circle[radius=1pt] node[above]{\$C\$};"
+  echo "      \\end{tikzpicture}"
   echo "    \\end{minipage}%"
-  echo "  \\end{CENTER}"
+  echo "    \\hfill"
+  echo "    \\begin{minipage}{0.49\\textwidth}"
+  echo "      In an \\clozegap{#1}{1}{isosceles triangle} the two angles"
+  echo "      opposite the legs are always \\clozegap{#1}{2}{equal} and"
+  echo "      \\clozegap{#1}{3}{acute}."
+  echo "    \\end{minipage}%"
+  echo "    \\hfill"
+  echo "  \\end{frame}%"
   echo "}%"
   echo
-  echo "\\cloze{0}\\clearpage"
-  echo "\\cloze{1}\\clearpage"
-  echo "\\cloze{2}\\clearpage"
-  echo "\\cloze{3}\\clearpage"
-  echo "\\cloze{4}\\clearpage"
-  echo "\\cloze{5}"
+  echo "\\cloze{0}"
+  echo "\\cloze{1}"
+  echo "\\cloze{2}"
+  echo "\\cloze{3}"
   echo
   echo "% ------------------------------------------------------------------------------"
   echo "\\end{document}"
   echo "% ------------------------------------------------------------------------------"
+}
+
+# -------------
+# show_makefile
+# -------------
+#
+#
+#
+function show_makefile()
+{
+  echo "# filename and extensions"
+  echo "FILE    = template"
+  echo "EXT_IN  = tex"
+  echo "EXT_OUT = pdf"
+  echo "EXT_LOG = log"
+  echo "EXT_TMP = tmp"
+  echo
+  echo "# tools and options"
+  echo "TEX     = pdflatex"
+  echo "BIB     = bibtex"
+  echo "IDX     = makeindex"
+  echo "IFLAGS  ="
+  echo "EYE     = xreader"
+  echo "DEL     = rm -f"
+  echo "REN     = mv -f"
+  echo "CNV     = iconv"
+  echo "CFLAGS  = --from-code ISO_8859-1 --to-code UTF-8"
+  echo
+  echo "# always create these targets"
+  echo ".PHONY: all clean"
+  echo
+  echo "# show pdf file"
+  echo "all: \$(FILE).\$(EXT_OUT)"
+  echo "	\$(EYE) \$(FILE).\$(EXT_OUT)"
+  echo
+  echo "# create pdf file from all tex files in the current directory"
+  echo "\$(FILE).\$(EXT_OUT): *.\$(EXT_IN)"
+  echo "#	\$(TEX) \$(FILE).\$(EXT_IN)"
+  echo "#	\$(BIB) \$(FILE)"
+  echo "#	\$(IDX) \$(IFLAGS) \$(FILE)"
+  echo "	\$(TEX) \$(FILE).\$(EXT_IN)"
+  echo "	\$(TEX) \$(FILE).\$(EXT_IN)"
+  echo "	\$(CNV) \$(CFLAGS) \$(FILE).\$(EXT_LOG) > \$(FILE).\$(EXT_TMP)"
+  echo "	\$(DEL) \$(FILE).\$(EXT_LOG)"
+  echo "	\$(REN) \$(FILE).\$(EXT_TMP) \$(FILE).\$(EXT_LOG)"
+  echo
+  echo "# remove temporary files"
+  echo "clean:"
+  echo "	\$(DEL) *.aux *.bbl *.blg *.idx *.ilg *.ind *.lof *.log *.lot *.nav *.out *.snm *.thm *.toc \$(FILE).\$(EXT_OUT)"
+}
+
+# ---------------------
+# create_template_files
+# ---------------------
+#
+#
+#
+function create_template_files()
+{
+  # reset tex file
+  truncate --size=0 "template.tex" &>"/dev/null"
+
+  # check write permission
+  if [ ! -w "template.tex" ] ; then
+
+    # notify user
+    failmsg "no write permission: $PWD"
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # write tex code
+  show_document > "template.tex"
+
+  # notify user
+  infomsg "file created: template.tex"
+
+  # reset makefile
+  truncate --size=0 "makefile" &>"/dev/null"
+
+  # check write permission
+  if [ ! -w "makefile" ] ; then
+
+    # notify user
+    failmsg "no write permission: $PWD"
+
+    # signalize trouble
+    return 1
+
+  fi
+
+  # write makefile
+  show_makefile > "makefile"
+
+  # notify user
+  infomsg "file created: makefile"
+
+  # signalize success
+  return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -1260,7 +1198,7 @@ do
     "r") OPMODE="REMOVE_TIMESTAMP"
          ;;
 
-    "t") OPMODE="SHOW_TEMPLATE"
+    "t") OPMODE="CREATE_TEMPLATE_FILES"
          ;;
 
     "?") failmsg "unknown option: -$OPTARG"
@@ -1297,18 +1235,18 @@ fi
 # ------------------------------------------------------------------------------
 
 case "$OPMODE" in
-  "SHOW_HELP")        show_help                   ;;
-  "ADD_TIMESTAMP")    add_timestamp               ;;
-  "FINISH_TEMPLATE")  finish_template             ;;
-  "HIT")              hit                         ;;
-  "IMPORT_KEEP")      import "k" "$IMPORT_SOURCE" ;;
-  "IMPORT_RESET")     import "r" "$IMPORT_SOURCE" ;;
-  "MISS")             miss                        ;;
-  "SHOW_PROGRESS")    show_progress               ;;
-  "QUERY_NEW")        query "n"                   ;;
-  "QUERY_EXPIRED")    query "x"                   ;;
-  "REMOVE_TIMESTAMP") remove_timestamp            ;;
-  "SHOW_TEMPLATE")    show_template               ;;
+  "SHOW_HELP")             show_help                   ;;
+  "ADD_TIMESTAMP")         add_timestamp               ;;
+  "FINISH_TEMPLATE")       finish_template             ;;
+  "HIT")                   hit                         ;;
+  "IMPORT_KEEP")           import "k" "$IMPORT_SOURCE" ;;
+  "IMPORT_RESET")          import "r" "$IMPORT_SOURCE" ;;
+  "MISS")                  miss                        ;;
+  "SHOW_PROGRESS")         show_progress               ;;
+  "QUERY_NEW")             query "n"                   ;;
+  "QUERY_EXPIRED")         query "x"                   ;;
+  "REMOVE_TIMESTAMP")      remove_timestamp            ;;
+  "CREATE_TEMPLATE_FILES") create_template_files       ;;
 esac
 
 # signalize success
