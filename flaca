@@ -977,6 +977,9 @@ function show_document()
   echo "% select global theme"
   echo "\\usetheme{Rochester}"
   echo
+  echo "% hide navigation symbols"
+  echo "\\beamertemplatenavigationsymbolsempty"
+  echo
   echo "% ------"
   echo "% vstrut"
   echo "% ------"
