@@ -423,7 +423,8 @@ function finish_template()
   # notify user
   donemsg "file created: $TARGETFILE"
 
-  # create pdf file
+  # create pdf file (twice)
+  pdflatex "$TARGETFILE" &>"/dev/null"
   pdflatex "$TARGETFILE" &>"/dev/null"
 
   # check if pdf file has been created
@@ -438,7 +439,20 @@ function finish_template()
   fi
 
   # remove temporary files
-  rm -f *.aux *.log
+  rm -f "$NOW.aux" \
+        "$NOW.bbl" \
+        "$NOW.blg" \
+        "$NOW.idx" \
+        "$NOW.ilg" \
+        "$NOW.ind" \
+        "$NOW.lof" \
+        "$NOW.log" \
+        "$NOW.lot" \
+        "$NOW.nav" \
+        "$NOW.out" \
+        "$NOW.snm" \
+        "$NOW.thm" \
+        "$NOW.toc"
 
   # notify user
   donemsg "file created: $NOW.pdf"
